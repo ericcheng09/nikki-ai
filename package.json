@@ -1,0 +1,29 @@
+{
+  "name": "nikki-ai",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:prod": "npm run build && playwright test --config playwright.prod.config.js",
+    "build": "vite build && node scripts/copy-404.js",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router-dom": "^7.18.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@vitejs/plugin-react": "^6.1.2",
+    "fake-indexeddb": "^6.2.6",
+    "jsdom": "^29.1.1",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
+  }
+}

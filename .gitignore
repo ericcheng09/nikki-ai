@@ -9,3 +9,13 @@ notes/
  
 .DS_Store
 Thumbs.db
+
+# Dependencies and build output
+node_modules/
+dist/
+
+# Playwright artifacts
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
