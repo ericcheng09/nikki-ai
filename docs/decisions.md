@@ -45,6 +45,6 @@
 ### 部署與測試（補充 spec 2.3、第 7 節）
 
 - 子路徑重新整理的 404 問題：build 後複製 `index.html` 為 `404.html`。
-- GitHub Actions 部署前執行單元測試與 E2E，任一失敗不部署；CI 的 E2E 對正式 build（preview）執行，Node 版本固定為 22。
+- GitHub Actions 部署前執行單元測試與 E2E，任一失敗不部署；CI 的 E2E 對正式 build 執行，使用模擬 GitHub Pages 的本機伺服器（`scripts/pages-server.js`），以驗證 `404.html`；Node 版本固定為 22。
 - E2E 使用專屬 port 5199，不沿用已開啟的伺服器。
 - 單元測試固定在 `Asia/Taipei` 時區執行，確保 UTC 環境也能測出時區錯誤。

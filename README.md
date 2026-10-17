@@ -51,6 +51,8 @@ npm run build     # 建置正式版到 dist/（含給 GitHub Pages 用的 404.ht
 npm run preview   # 預覽正式版：http://localhost:4173/nikki-ai/
 ```
 
+> 注意：如果用 `npm run dev -- --host` 讓手機透過區網 IP（例如 `http://192.168.x.x:5173/nikki-ai/`）連線，瀏覽器的安全限制會讓新增日記失敗，請用 `localhost` 開啟。正式網址是 HTTPS，不受影響。
+
 ## 測試
 
 第一次執行 E2E 測試前，先安裝 Playwright 使用的瀏覽器：
