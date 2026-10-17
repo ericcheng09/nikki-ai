@@ -10,11 +10,10 @@ export const ENTRIES_STORE = 'entries'
 export const SETTINGS_STORE = 'settings'
 
 // Known settings and their defaults (spec 4.3). Each setting is stored as
-// its own record keyed by name, so later fields (e.g. geminiApiKey in
-// Phase 2) are added here without a schema migration.
-const DEFAULT_SETTINGS = {
-  sampleDismissed: false,
-}
+// its own record keyed by name, so new fields (welcomeSeen, geminiApiKey,
+// ...) are added here without a schema migration. Empty for now: only
+// keys listed here can be read or written.
+const DEFAULT_SETTINGS = {}
 
 export function openDatabase({ factory = globalThis.indexedDB, name = DB_NAME } = {}) {
   return new Promise((resolve, reject) => {
@@ -97,18 +96,10 @@ export function getAllEntries(db) {
 }
 
 // Inserts or overwrites by id. Used for new entries, edits and soft-delete
-// tombstones alike.
+// tombstones alike. There is deliberately no hard delete: entries are
+// always soft-deleted (spec 4.1) so deletions can sync later.
 export async function putEntry(db, entry) {
   await runInStore(db, ENTRIES_STORE, 'readwrite', (store) => store.put(entry))
-}
-
-// Hard delete: removes the whole record without leaving a tombstone.
-// ONLY for the sample entry (spec 3.5 / 4.1); the app uses
-// dismissSampleEntry(), which also records sampleDismissed atomically.
-// Regular diary entries must be soft-deleted via softDeleteEntry() +
-// putEntry() so deletions can sync.
-export async function removeEntry(db, id) {
-  await runInStore(db, ENTRIES_STORE, 'readwrite', (store) => store.delete(id))
 }
 
 // Returns all known settings, filling in defaults for unset ones.
@@ -134,39 +125,5 @@ export async function saveSettings(db, partial) {
       // toString or constructor from Object.prototype.
       if (Object.hasOwn(DEFAULT_SETTINGS, key)) store.put(value, key)
     }
-  })
-}
-
-// Seeds the sample entry (spec 3.5) unless it was dismissed or already
-// exists. Both checks and the write happen in ONE readwrite transaction
-// over both stores; IndexedDB serialises overlapping readwrite
-// transactions, so concurrent calls (StrictMode, two tabs) can neither add
-// it twice nor overwrite an existing sample (e.g. its original date).
-// Resolves with true when the sample was added.
-export function seedSampleEntry(db, sample) {
-  return runTransaction(db, [ENTRIES_STORE, SETTINGS_STORE], 'readwrite', (tx) => {
-    let added = false
-    const dismissed = tx.objectStore(SETTINGS_STORE).get('sampleDismissed')
-    dismissed.onsuccess = () => {
-      if (dismissed.result === true) return
-      const entries = tx.objectStore(ENTRIES_STORE)
-      const existing = entries.get(sample.id)
-      existing.onsuccess = () => {
-        if (existing.result !== undefined) return
-        entries.put(sample)
-        added = true
-      }
-    }
-    return () => added
-  })
-}
-
-// Deletes the sample for good (spec 3.5 / 4.1): removes the whole record,
-// leaving no tombstone, and sets sampleDismissed in the same transaction so
-// the two can never get out of step.
-export async function dismissSampleEntry(db, id) {
-  await runTransaction(db, [ENTRIES_STORE, SETTINGS_STORE], 'readwrite', (tx) => {
-    tx.objectStore(ENTRIES_STORE).delete(id)
-    tx.objectStore(SETTINGS_STORE).put(true, 'sampleDismissed')
   })
 }

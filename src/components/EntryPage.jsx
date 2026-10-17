@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import DiaryEditor from './DiaryEditor.jsx'
-import SampleEntryView from './SampleEntryView.jsx'
 import { loadEntry } from '../storage/connection.js'
 
 // Loads the entry for /entry/:id and shows it in an editable form.
@@ -50,10 +49,6 @@ export default function EntryPage() {
         <Link to="/">回主畫面</Link>
       </section>
     )
-  }
-  // The sample is read-only; it can only be deleted (spec 3.5).
-  if (state.entry.isSample) {
-    return <SampleEntryView entry={state.entry} />
   }
   // key: remount the form (fresh state) when navigating to another entry.
   return <DiaryEditor key={state.entry.id} entry={state.entry} />

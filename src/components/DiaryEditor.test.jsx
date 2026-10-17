@@ -39,7 +39,6 @@ const existing = {
   updatedAt: '2026-10-15T01:00:00.000Z',
   deleted: false,
   deletedAt: null,
-  isSample: false,
   analysis: null,
 }
 
@@ -88,7 +87,6 @@ describe('DiaryEditor (new entry)', () => {
       content: '  Today I studied.\n',
       language: 'auto',
       deleted: false,
-      isSample: false,
       analysis: null,
     })
     expect(await screen.findByText(`日記頁 ${saved.id}`)).toBeInTheDocument()

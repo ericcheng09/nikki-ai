@@ -1,11 +1,10 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import DiaryList from './DiaryList.jsx'
-import { loadEntries, seedSample } from '../storage/connection.js'
+import { loadEntries } from '../storage/connection.js'
 
 vi.mock('../storage/connection.js', () => ({
   loadEntries: vi.fn(),
-  seedSample: vi.fn(),
 }))
 
 const entry = (id, date, createdAt, content = `content ${id}`) => ({
@@ -26,13 +25,8 @@ function renderList() {
   )
 }
 
-beforeEach(() => {
-  vi.mocked(seedSample).mockResolvedValue()
-})
-
 afterEach(() => {
   vi.mocked(loadEntries).mockReset()
-  vi.mocked(seedSample).mockReset()
 })
 
 describe('DiaryList', () => {
@@ -120,43 +114,6 @@ describe('DiaryList', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '無法存取本機資料，請重新整理頁面。',
     )
-  })
-
-  it('seeds the sample before loading the list', async () => {
-    const order = []
-    vi.mocked(seedSample).mockImplementation(async () => {
-      order.push('seed')
-    })
-    vi.mocked(loadEntries).mockImplementation(async () => {
-      order.push('load')
-      return []
-    })
-    renderList()
-
-    await screen.findByText(/還沒有日記/)
-    expect(order.slice(0, 2)).toEqual(['seed', 'load'])
-  })
-
-  it('shows the 範例 badge only on the sample entry', async () => {
-    vi.mocked(loadEntries).mockResolvedValue([
-      { ...entry('sample', '2026-10-17', '2026-10-17T01:00:00.000Z'), isSample: true },
-      entry('mine', '2026-10-16', '2026-10-16T01:00:00.000Z'),
-    ])
-    renderList()
-
-    const [sampleItem, mineItem] = await screen.findAllByRole('listitem')
-    expect(sampleItem).toHaveTextContent('範例')
-    expect(mineItem).not.toHaveTextContent('範例')
-  })
-
-  it('shows the error message when seeding fails', async () => {
-    vi.mocked(seedSample).mockRejectedValue(new Error('boom'))
-    renderList()
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      '無法存取本機資料，請重新整理頁面。',
-    )
-    expect(loadEntries).not.toHaveBeenCalled()
   })
 
   it('links to the new entry page', async () => {

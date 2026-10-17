@@ -50,18 +50,25 @@ describe('createEntry', () => {
       updatedAt: '2026-10-17T03:04:05.678Z',
       deleted: false,
       deletedAt: null,
-      isSample: false,
       analysis: null,
     })
   })
 
-  it('accepts explicit language and isSample', () => {
+  it('accepts an explicit language', () => {
     const entry = createEntry(
-      { date: '2026-10-17', content: 'こんにちは', language: 'ja', isSample: true },
+      { date: '2026-10-17', content: 'こんにちは', language: 'ja' },
       { now: NOW, generateId: () => 'id-2' },
     )
     expect(entry.language).toBe('ja')
-    expect(entry.isSample).toBe(true)
+  })
+
+  it('ignores fields that are not part of a new entry', () => {
+    const entry = createEntry(
+      { date: '2026-10-17', content: 'x', extraField: true, deleted: true },
+      { now: NOW, generateId: () => 'id-3' },
+    )
+    expect(entry).not.toHaveProperty('extraField')
+    expect(entry.deleted).toBe(false)
   })
 
   it('generates a UUID by default', () => {
@@ -116,20 +123,20 @@ describe('updateEntry', () => {
   it('ignores attempts to change protected fields', () => {
     const updated = updateEntry(
       original,
-      { id: 'hacked', createdAt: 'x', deleted: true, isSample: true },
+      { id: 'hacked', createdAt: 'x', deleted: true, analysis: { x: 1 } },
       { now: LATER },
     )
     expect(updated.id).toBe('id-1')
     expect(updated.createdAt).toBe(original.createdAt)
     expect(updated.deleted).toBe(false)
-    expect(updated.isSample).toBe(false)
+    expect(updated.analysis).toBeNull()
   })
 })
 
 describe('softDeleteEntry', () => {
   const entry = {
     ...createEntry(
-      { date: '2026-10-17', content: 'secret', isSample: true },
+      { date: '2026-10-17', content: 'secret' },
       { now: NOW, generateId: () => 'id-1' },
     ),
     analysis: { correctedText: 'x' },

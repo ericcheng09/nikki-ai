@@ -8,7 +8,7 @@
 // callers (sorting now, sync merge later) compare updatedAt as plain strings.
 
 // Fields a user edit may change. Everything else (id, createdAt, deleted,
-// isSample, analysis...) is managed elsewhere and must not be overwritten.
+// analysis...) is managed elsewhere and must not be overwritten.
 const EDITABLE_FIELDS = ['content', 'date', 'language']
 
 // JavaScript's \s already covers spaces, tabs, newlines and Unicode spaces
@@ -18,7 +18,7 @@ export function isBlank(text) {
 }
 
 export function createEntry(
-  { date, content, language = 'auto', isSample = false },
+  { date, content, language = 'auto' },
   { now = new Date(), generateId = () => crypto.randomUUID() } = {},
 ) {
   const timestamp = now.toISOString()
@@ -32,7 +32,6 @@ export function createEntry(
     updatedAt: timestamp,
     deleted: false,
     deletedAt: null,
-    isSample,
     analysis: null,
   }
 }

@@ -2,15 +2,11 @@ import 'fake-indexeddb/auto'
 import {
   createConnection,
   deleteEntry,
-  deleteSampleEntry,
   getDb,
   loadEntries,
   loadEntry,
   saveEntry,
-  seedSample,
 } from './connection.js'
-import { getSettings, saveSettings } from './db.js'
-import { SAMPLE_ENTRY_ID } from '../lib/sample.js'
 
 describe('createConnection', () => {
   it('opens the database only once and reuses the same Promise', async () => {
@@ -83,7 +79,6 @@ describe('deleteEntry', () => {
       updatedAt: '2026-10-17T01:00:00.000Z',
       deleted: false,
       deletedAt: null,
-      isSample: false,
       analysis: { correctedText: 'x' },
     }
     await saveEntry(entry)
@@ -95,46 +90,5 @@ describe('deleteEntry', () => {
     )
     expect(stored.deleted).toBe(true)
     expect(stored.deletedAt).toBe(stored.updatedAt)
-  })
-})
-
-// These share the module-level database, so each test restores the sample
-// state it relies on.
-describe('sample entry', () => {
-  beforeEach(async () => {
-    await saveSettings(await getDb(), { sampleDismissed: false })
-  })
-
-  it('seedSample stores one sample, also when called repeatedly', async () => {
-    await Promise.all([seedSample(), seedSample()])
-    await seedSample()
-    const samples = (await loadEntries()).filter((e) => e.id === SAMPLE_ENTRY_ID)
-    expect(samples).toHaveLength(1)
-    expect(samples[0].isSample).toBe(true)
-  })
-
-  it('deleteEntry rejects the sample and leaves it unchanged', async () => {
-    await seedSample()
-    const sample = await loadEntry(SAMPLE_ENTRY_ID)
-    await expect(deleteEntry(sample)).rejects.toThrow()
-    expect(await loadEntry(SAMPLE_ENTRY_ID)).toEqual(sample)
-  })
-
-  it('deleteSampleEntry removes the sample without a tombstone and dismisses it', async () => {
-    await seedSample()
-    const sample = await loadEntry(SAMPLE_ENTRY_ID)
-    await deleteSampleEntry(sample)
-
-    expect(await loadEntry(SAMPLE_ENTRY_ID)).toBeUndefined()
-    expect(await getSettings(await getDb())).toEqual({ sampleDismissed: true })
-    await seedSample()
-    expect(await loadEntry(SAMPLE_ENTRY_ID)).toBeUndefined()
-  })
-
-  it('deleteSampleEntry rejects a regular entry', async () => {
-    const entry = { id: 'regular-1', content: 'x', deleted: false, isSample: false }
-    await saveEntry(entry)
-    await expect(deleteSampleEntry(entry)).rejects.toThrow()
-    expect(await loadEntry('regular-1')).toEqual(entry)
   })
 })

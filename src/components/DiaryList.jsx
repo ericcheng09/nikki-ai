@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { filterActiveEntries, sortEntries } from '../lib/diary.js'
-import { loadEntries, seedSample } from '../storage/connection.js'
+import { loadEntries } from '../storage/connection.js'
 
 const PREVIEW_LENGTH = 80
 
@@ -24,10 +24,7 @@ export default function DiaryList() {
     // Ignore results that arrive after unmount (also covers StrictMode's
     // mount -> unmount -> mount cycle in development).
     let active = true
-    // Seed the sample before loading so a first launch shows it right away.
-    // Seeding is idempotent, so StrictMode's second run is harmless.
-    seedSample()
-      .then(loadEntries)
+    loadEntries()
       .then((all) => {
         if (!active) return
         setEntries(sortEntries(filterActiveEntries(all)))
@@ -65,10 +62,7 @@ export default function DiaryList() {
           {entries.map((entry) => (
             <li key={entry.id}>
               <Link className="entry-item" to={`/entry/${entry.id}`}>
-                <div className="entry-meta">
-                  <time dateTime={entry.date}>{entry.date}</time>
-                  {entry.isSample && <span className="badge">範例</span>}
-                </div>
+                <time dateTime={entry.date}>{entry.date}</time>
                 <p className="entry-preview">{preview(entry.content)}</p>
               </Link>
             </li>

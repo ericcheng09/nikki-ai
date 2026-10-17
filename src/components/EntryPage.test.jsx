@@ -7,7 +7,6 @@ vi.mock('../storage/connection.js', () => ({
   loadEntry: vi.fn(),
   saveEntry: vi.fn(),
   deleteEntry: vi.fn(),
-  deleteSampleEntry: vi.fn(),
 }))
 
 function renderAt(id) {
@@ -41,26 +40,6 @@ describe('EntryPage', () => {
     expect(await screen.findByRole('heading', { name: '編輯日記' })).toBeInTheDocument()
     expect(loadEntry).toHaveBeenCalledWith('abc')
     expect(screen.getByLabelText('內容')).toHaveValue('Hello')
-  })
-
-  it('shows the sample entry read-only, without an edit form', async () => {
-    vi.mocked(loadEntry).mockResolvedValue({
-      id: 'sample',
-      date: '2026-10-17',
-      content: 'Line one\nLine two',
-      createdAt: '2026-10-17T01:00:00.000Z',
-      updatedAt: '2026-10-17T01:00:00.000Z',
-      deleted: false,
-      deletedAt: null,
-      isSample: true,
-    })
-    renderAt('sample')
-
-    expect(await screen.findByRole('heading', { name: /範例日記/ })).toBeInTheDocument()
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('日期')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '儲存' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '刪除' })).toBeInTheDocument()
   })
 
   it('shows 找不到這篇日記 for an unknown id, without a form', async () => {
