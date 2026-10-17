@@ -307,6 +307,7 @@ OAuth 用戶端 ID 不是秘密，可以放在程式碼中；但仍不得 commit
 | 文件 | 內容 | 撰寫者 |
 |---|---|---|
 | `docs/spec.md` | 本文件 | 使用者確認 |
+| `docs/decisions.md` | 開發過程中確定的細節決定，補充規格未寫到之處，效力等同規格；與規格衝突時以規格為準 | 使用者確認，Planner 整理 |
 | `docs/phases/phase-<編號>-summary.md` | 每個 phase 的 summary | Code Reviewer |
 | `docs/ai-review-log.md` | AI 出錯的類型與修正方式，作為改進規則的依據 | 內容來自使用者的紀錄，AI 只協助整理格式 |
 | `README.md` | 見下方 | AI 起草，使用者 review |
