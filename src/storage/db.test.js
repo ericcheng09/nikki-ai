@@ -121,13 +121,25 @@ describe('settings', () => {
       request.onerror = () => reject(request.error)
     })
 
+  it('reads back a saved geminiApiKey without touching other settings', async () => {
+    await saveSettings(db, { welcomeSeen: true })
+    await saveSettings(db, { geminiApiKey: 'test-key' })
+    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: 'test-key' })
+  })
+
+  it('can clear geminiApiKey back to an empty string', async () => {
+    await saveSettings(db, { geminiApiKey: 'test-key' })
+    await saveSettings(db, { geminiApiKey: '' })
+    expect((await getSettings(db)).geminiApiKey).toBe('')
+  })
+
   it('defaults welcomeSeen to false when nothing is stored', async () => {
-    expect(await getSettings(db)).toEqual({ welcomeSeen: false })
+    expect(await getSettings(db)).toEqual({ welcomeSeen: false, geminiApiKey: '' })
   })
 
   it('reads back a saved welcomeSeen value', async () => {
     await saveSettings(db, { welcomeSeen: true })
-    expect(await getSettings(db)).toEqual({ welcomeSeen: true })
+    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '' })
   })
 
   it('ignores unknown setting keys, including inherited names', async () => {
@@ -139,7 +151,7 @@ describe('settings', () => {
       toString: 'x',
       constructor: 'x',
     })
-    expect(await getSettings(db)).toEqual({ welcomeSeen: true })
+    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '' })
     // getSettings only reads known keys, so inspect the raw store to make
     // sure only the known key was written.
     expect(await rawKeys()).toEqual(['welcomeSeen'])
@@ -148,7 +160,7 @@ describe('settings', () => {
   it('leaves settings unchanged when saving an empty object', async () => {
     await saveSettings(db, { welcomeSeen: true })
     await saveSettings(db, {})
-    expect(await getSettings(db)).toEqual({ welcomeSeen: true })
+    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '' })
   })
 })
 
@@ -160,6 +172,6 @@ describe('persistence', () => {
 
     db = await openDatabase({ factory })
     expect(await getAllEntries(db)).toEqual([entry()])
-    expect(await getSettings(db)).toEqual({ welcomeSeen: true })
+    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '' })
   })
 })

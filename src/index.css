@@ -133,6 +133,49 @@ body {
   background: #c62828;
 }
 
+.button-secondary {
+  background: #fff;
+  color: #222;
+  border: 1px solid #ccc;
+}
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-section h3 {
+  font-size: 1.1rem;
+  margin: 0 0 8px;
+}
+
+.settings-section h4 {
+  font-size: 1rem;
+  margin: 16px 0 4px;
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.input-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-steps {
+  margin: 0;
+  padding-left: 1.5em;
+}
+
 .analysis-view {
   display: flex;
   flex-direction: column;

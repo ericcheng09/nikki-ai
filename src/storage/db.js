@@ -17,6 +17,9 @@ const DEFAULT_SETTINGS = {
   // Set once the user presses 開始使用 on the welcome page (spec 3.5).
   // Local-only: never synced, so each device shows the page once.
   welcomeSeen: false,
+  // The user's own Gemini API key (spec 4.3, 5.1); '' means not set.
+  // Synced via Google Drive from Phase 4. Never logged (spec 5.4).
+  geminiApiKey: '',
 }
 
 export function openDatabase({ factory = globalThis.indexedDB, name = DB_NAME } = {}) {

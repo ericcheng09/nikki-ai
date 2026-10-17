@@ -81,18 +81,23 @@ describe('App', () => {
     expect(loadSettings).not.toHaveBeenCalled()
   })
 
-  it('renders the settings page on /settings without the menu', () => {
+  it('renders the settings page on /settings without the menu', async () => {
     renderAt('/settings')
+    await screen.findByRole('heading', { level: 3, name: 'Gemini API key' })
     expect(screen.getByRole('heading', { level: 2, name: '設定' })).toBeInTheDocument()
     // The menu is only on the home page.
     expect(screen.queryByRole('button', { name: '選單' })).not.toBeInTheDocument()
   })
 
-  it('does not redirect a first-time user who opens /settings directly', () => {
-    vi.mocked(loadSettings).mockResolvedValue({ welcomeSeen: false })
+  it('does not redirect a first-time user who opens /settings directly', async () => {
+    vi.mocked(loadSettings).mockResolvedValue({ welcomeSeen: false, geminiApiKey: '' })
     renderAt('/settings')
+    // Settings are read for the API key section, but welcomeSeen is ignored.
+    expect(await screen.findByText('尚未設定 API key')).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 2, name: '設定' })).toBeInTheDocument()
-    expect(loadSettings).not.toHaveBeenCalled()
+    expect(
+      screen.queryByRole('heading', { name: '歡迎使用外語學習日記' }),
+    ).not.toBeInTheDocument()
   })
 
   it('opens settings from the home menu and returns home', async () => {

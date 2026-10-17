@@ -99,9 +99,9 @@ describe('deleteEntry', () => {
 
 describe('settings', () => {
   it('reads defaults and saved values through the shared connection', async () => {
-    expect(await loadSettings()).toEqual({ welcomeSeen: false })
+    expect(await loadSettings()).toEqual({ welcomeSeen: false, geminiApiKey: '' })
     await updateSettings({ welcomeSeen: true })
-    expect(await loadSettings()).toEqual({ welcomeSeen: true })
+    expect(await loadSettings()).toEqual({ welcomeSeen: true, geminiApiKey: '' })
   })
 })
 
@@ -113,6 +113,6 @@ describe('markWelcomeSeen', () => {
     await markWelcomeSeen()
 
     expect(isWelcomeSeenThisSession()).toBe(true)
-    expect(await loadSettings()).toEqual({ welcomeSeen: true })
+    expect(await loadSettings()).toEqual({ welcomeSeen: true, geminiApiKey: '' })
   })
 })
