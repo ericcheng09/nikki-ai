@@ -90,6 +90,36 @@ export async function readStore(page, storeName) {
   )
 }
 
+// Writes records into an IndexedDB object store of the app (the database
+// must already exist, e.g. after startApp()). For the out-of-line-keyed
+// "settings" store pass { key: value }; otherwise an array of records.
+// Reload or navigate afterwards so the app reads the new data.
+export async function writeStore(page, storeName, data) {
+  await page.evaluate(
+    ({ name, data }) =>
+      new Promise((resolve, reject) => {
+        const open = indexedDB.open('nikki-ai')
+        open.onerror = () => reject(open.error)
+        open.onsuccess = () => {
+          const db = open.result
+          const tx = db.transaction(name, 'readwrite')
+          const store = tx.objectStore(name)
+          if (store.keyPath) {
+            for (const record of data) store.put(record)
+          } else {
+            for (const [key, value] of Object.entries(data)) store.put(value, key)
+          }
+          tx.oncomplete = () => {
+            db.close()
+            resolve()
+          }
+          tx.onerror = () => reject(tx.error)
+        }
+      }),
+    { name: storeName, data },
+  )
+}
+
 // --- Gemini API mock -------------------------------------------------------
 // installGeminiMock() answers GET requests to the models endpoint with
 // `mock.respond(route, callNumber)` (replaceable per test) and records them in

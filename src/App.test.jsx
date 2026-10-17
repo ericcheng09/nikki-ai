@@ -11,6 +11,7 @@ vi.mock('./storage/connection.js', () => ({
   isWelcomeSeenThisSession: vi.fn(() => false),
   markWelcomeSeen: vi.fn(),
   saveEntry: vi.fn(),
+  saveEntryAddingLanguage: vi.fn(),
   deleteEntry: vi.fn(),
 }))
 

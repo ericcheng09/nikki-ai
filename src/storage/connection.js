@@ -6,6 +6,7 @@ import {
   openDatabase,
   getAllEntries,
   putEntry,
+  putEntryAddingLanguage,
   getSettings,
   saveSettings,
 } from './db.js'
@@ -41,6 +42,12 @@ export async function loadEntries() {
 
 export async function saveEntry(entry) {
   await putEntry(await getDb(), entry)
+}
+
+// Saves an entry and adds `language` (typed via 「其他」) to the custom
+// language list in the same transaction; see putEntryAddingLanguage.
+export async function saveEntryAddingLanguage(entry, language) {
+  await putEntryAddingLanguage(await getDb(), entry, language)
 }
 
 // Returns the stored record for `id` as-is (it may be a soft-delete

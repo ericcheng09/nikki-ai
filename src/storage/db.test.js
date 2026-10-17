@@ -9,6 +9,7 @@ import {
   putEntry,
   getSettings,
   saveSettings,
+  putEntryAddingLanguage,
 } from './db.js'
 
 const entry = (overrides = {}) => ({
@@ -128,6 +129,7 @@ describe('settings', () => {
       welcomeSeen: true,
       geminiApiKey: 'test-key',
       geminiModel: '',
+      customLanguages: [],
     })
   })
 
@@ -142,17 +144,17 @@ describe('settings', () => {
 
   it('can clear geminiApiKey back to an empty string', async () => {
     await saveSettings(db, { geminiApiKey: 'test-key' })
-    await saveSettings(db, { geminiApiKey: '', geminiModel: '' })
+    await saveSettings(db, { geminiApiKey: '', geminiModel: '', customLanguages: [] })
     expect((await getSettings(db)).geminiApiKey).toBe('')
   })
 
   it('defaults welcomeSeen to false when nothing is stored', async () => {
-    expect(await getSettings(db)).toEqual({ welcomeSeen: false, geminiApiKey: '', geminiModel: '' })
+    expect(await getSettings(db)).toEqual({ welcomeSeen: false, geminiApiKey: '', geminiModel: '', customLanguages: [] })
   })
 
   it('reads back a saved welcomeSeen value', async () => {
     await saveSettings(db, { welcomeSeen: true })
-    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '', geminiModel: '' })
+    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '', geminiModel: '', customLanguages: [] })
   })
 
   it('ignores unknown setting keys, including inherited names', async () => {
@@ -164,7 +166,7 @@ describe('settings', () => {
       toString: 'x',
       constructor: 'x',
     })
-    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '', geminiModel: '' })
+    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '', geminiModel: '', customLanguages: [] })
     // getSettings only reads known keys, so inspect the raw store to make
     // sure only the known key was written.
     expect(await rawKeys()).toEqual(['welcomeSeen'])
@@ -173,7 +175,7 @@ describe('settings', () => {
   it('leaves settings unchanged when saving an empty object', async () => {
     await saveSettings(db, { welcomeSeen: true })
     await saveSettings(db, {})
-    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '', geminiModel: '' })
+    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '', geminiModel: '', customLanguages: [] })
   })
 })
 
@@ -185,6 +187,131 @@ describe('persistence', () => {
 
     db = await openDatabase({ factory })
     expect(await getAllEntries(db)).toEqual([entry()])
-    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '', geminiModel: '' })
+    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '', geminiModel: '', customLanguages: [] })
+  })
+})
+
+describe('settings defaults', () => {
+  it('gives every caller its own customLanguages array', async () => {
+    const first = await getSettings(db)
+    first.customLanguages.push({ name: 'x' })
+    const second = await getSettings(db)
+    expect(second.customLanguages).toEqual([])
+    expect(second.customLanguages).not.toBe(first.customLanguages)
+  })
+
+  it('saves and reads back customLanguages', async () => {
+    const list = [{ name: '韓文', updatedAt: 'T', deleted: false, deletedAt: null }]
+    await saveSettings(db, { customLanguages: list })
+    expect((await getSettings(db)).customLanguages).toEqual(list)
+  })
+})
+
+describe('putEntryAddingLanguage', () => {
+  const NOW = new Date('2026-10-18T00:00:00.000Z')
+  const NOW_ISO = NOW.toISOString()
+  const item = (name, overrides = {}) => ({
+    name,
+    updatedAt: '2026-10-01T00:00:00.000Z',
+    deleted: false,
+    deletedAt: null,
+    ...overrides,
+  })
+
+  // Counts writes to the settings store by recording put() calls.
+  function spyOnSettingsPuts() {
+    const keys = []
+    const original = db.transaction.bind(db)
+    vi.spyOn(db, 'transaction').mockImplementation((...args) => {
+      const tx = original(...args)
+      const originalStore = tx.objectStore.bind(tx)
+      tx.objectStore = (name) => {
+        const store = originalStore(name)
+        if (name === SETTINGS_STORE) {
+          const put = store.put.bind(store)
+          store.put = (value, key) => {
+            keys.push(key)
+            return put(value, key)
+          }
+        }
+        return store
+      }
+      return tx
+    })
+    return keys
+  }
+
+  it('saves the entry and appends a new custom language', async () => {
+    await putEntryAddingLanguage(db, entry({ language: '韓文' }), '韓文', { now: NOW })
+    expect(await getAllEntries(db)).toEqual([entry({ language: '韓文' })])
+    expect((await getSettings(db)).customLanguages).toEqual([item('韓文', { updatedAt: NOW_ISO })])
+  })
+
+  it('trims the name with the shared language rule', async () => {
+    await putEntryAddingLanguage(db, entry(), '  韓文 \n', { now: NOW })
+    expect((await getSettings(db)).customLanguages).toEqual([item('韓文', { updatedAt: NOW_ISO })])
+  })
+
+  it('does not write when the padded name is already active', async () => {
+    await saveSettings(db, { customLanguages: [item('韓文')] })
+    const keys = spyOnSettingsPuts()
+    await putEntryAddingLanguage(db, entry(), ' 韓文 ', { now: NOW })
+    expect(keys).toEqual([])
+  })
+
+  it('reads the current list inside the transaction and keeps other items', async () => {
+    await saveSettings(db, { customLanguages: [item('法文')] })
+    await putEntryAddingLanguage(db, entry(), '韓文', { now: NOW })
+    expect((await getSettings(db)).customLanguages).toEqual([
+      item('法文'),
+      item('韓文', { updatedAt: NOW_ISO }),
+    ])
+  })
+
+  it('revives a deleted language in place', async () => {
+    const tombstone = item('韓文', { deleted: true, deletedAt: '2026-10-02T00:00:00.000Z' })
+    await saveSettings(db, { customLanguages: [tombstone] })
+    await putEntryAddingLanguage(db, entry(), '韓文', { now: NOW })
+    expect((await getSettings(db)).customLanguages).toEqual([item('韓文', { updatedAt: NOW_ISO })])
+  })
+
+  it('does not write settings for an already active language', async () => {
+    await saveSettings(db, { customLanguages: [item('韓文')] })
+    const keys = spyOnSettingsPuts()
+    await putEntryAddingLanguage(db, entry({ content: 'v2' }), '韓文', { now: NOW })
+    expect(keys).toEqual([])
+    expect((await getSettings(db)).customLanguages).toEqual([item('韓文')])
+    expect((await getAllEntries(db))[0].content).toBe('v2')
+  })
+
+  it('does not write settings for built-in, auto or missing languages', async () => {
+    const keys = spyOnSettingsPuts()
+    for (const language of ['日文', '英文', 'auto', '自動判斷', '', undefined, null]) {
+      await putEntryAddingLanguage(db, entry(), language, { now: NOW })
+    }
+    expect(keys).toEqual([])
+    expect((await getSettings(db)).customLanguages).toEqual([])
+    expect(await getAllEntries(db)).toEqual([entry()])
+  })
+
+  it('saves nothing when the entry cannot be written', async () => {
+    await saveSettings(db, { customLanguages: [item('法文')] })
+    const bad = entry()
+    delete bad.id
+    await expect(putEntryAddingLanguage(db, bad, '韓文', { now: NOW })).rejects.toThrow()
+    expect(await getAllEntries(db)).toEqual([])
+    expect((await getSettings(db)).customLanguages).toEqual([item('法文')])
+  })
+
+  it('rolls back the entry when updating the list fails', async () => {
+    await saveSettings(db, { customLanguages: [item('法文')] })
+    // A clock that throws makes the in-transaction list update fail after
+    // the entry was already put.
+    const brokenNow = { toISOString: () => { throw new Error('clock') } }
+    await expect(
+      putEntryAddingLanguage(db, entry(), '韓文', { now: brokenNow }),
+    ).rejects.toThrow()
+    expect(await getAllEntries(db)).toEqual([])
+    expect((await getSettings(db)).customLanguages).toEqual([item('法文')])
   })
 })

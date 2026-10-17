@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   createEntry,
@@ -7,7 +7,24 @@ import {
   isBlank,
   updateEntry,
 } from '../lib/diary.js'
-import { deleteEntry, saveEntry } from '../storage/connection.js'
+import {
+  AUTO_LANGUAGE,
+  OTHER_OPTION_VALUE,
+  addLanguage,
+  languageOptions,
+  resolveLanguageInput,
+} from '../lib/languages.js'
+import {
+  deleteEntry,
+  loadSettings,
+  saveEntry,
+  saveEntryAddingLanguage,
+} from '../storage/connection.js'
+
+// Stored language of an entry; missing or invalid values count as auto.
+function entryLanguage(entry) {
+  return resolveLanguageInput(entry?.language)?.language ?? AUTO_LANGUAGE
+}
 
 // One form for both modes:
 // - no `entry` prop: create a new entry, then go to its page
@@ -19,6 +36,19 @@ export default function DiaryEditor({ entry }) {
   // Default date for a new entry is "today" in the user's local timezone.
   const [date, setDate] = useState(() => entry?.date ?? getLocalDateString())
   const [content, setContent] = useState(entry?.content ?? '')
+  // Select value: a language, or OTHER_OPTION_VALUE while 「其他」 is chosen.
+  const [language, setLanguage] = useState(() => entryLanguage(entry))
+  const [otherLanguage, setOtherLanguage] = useState('')
+  // Custom language list from settings, only used to build the options.
+  // If loading fails it stays empty: built-ins and 其他 still work, and the
+  // list itself is updated inside the save transaction, never from here.
+  const [customLanguages, setCustomLanguages] = useState([])
+  const otherInputId = useId()
+  const languageSelectId = useId()
+  // Languages this editor added through a save. A list load that finishes
+  // after such a save may predate it, so these are re-applied on top of
+  // the loaded list instead of being lost.
+  const addedLanguagesRef = useRef([])
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
@@ -26,6 +56,29 @@ export default function DiaryEditor({ entry }) {
   // both see busy === false. The ref blocks the second one immediately.
   const busyRef = useRef(false)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    let active = true
+    loadSettings()
+      .then((settings) => {
+        if (!active) return
+        const merged = addedLanguagesRef.current.reduce(
+          (list, name) => addLanguage(list, name),
+          settings.customLanguages ?? [],
+        )
+        setCustomLanguages(merged)
+      })
+      .catch(() => {
+        // Not logged on purpose; the editor works without the list.
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  // The saved entry's own language is passed so an entry whose custom
+  // language was deleted from the list still shows and keeps it.
+  const options = languageOptions(customLanguages, entryLanguage(saved))
 
   function lock() {
     if (busyRef.current) return false
@@ -66,20 +119,44 @@ export default function DiaryEditor({ entry }) {
       setError('內容不能空白')
       return
     }
+    // Only a language typed into 「其他」 is added to the list; keeping an
+    // entry's (possibly deleted) language never re-adds it.
+    let chosenLanguage = language
+    let languageToAdd = null
+    if (language === OTHER_OPTION_VALUE) {
+      const resolved = resolveLanguageInput(otherLanguage)
+      if (!resolved) {
+        setNotice('')
+        setError('請輸入日記語言')
+        return
+      }
+      chosenLanguage = resolved.language
+      if (resolved.isCustom) languageToAdd = resolved.language
+    }
     if (!lock()) return
     clearMessages()
+    // Built-in / auto / existing names need no list update.
+    const persist = (record) =>
+      languageToAdd ? saveEntryAddingLanguage(record, languageToAdd) : saveEntry(record)
     try {
       if (isEdit) {
-        const updated = updateEntry(saved, { date, content })
-        await saveEntry(updated)
+        const updated = updateEntry(saved, { date, content, language: chosenLanguage })
+        await persist(updated)
         setSaved(updated)
+        if (languageToAdd) {
+          // Mirror the stored change locally so the new language shows as
+          // a normal option and stays selected.
+          addedLanguagesRef.current = [...addedLanguagesRef.current, languageToAdd]
+          setCustomLanguages((list) => addLanguage(list, languageToAdd))
+        }
+        setLanguage(chosenLanguage)
+        setOtherLanguage('')
         setNotice('已儲存')
         unlock()
       } else {
-        // Content is stored exactly as typed; language stays 'auto' until
-        // language selection arrives in Phase 2.
-        const created = createEntry({ date, content })
-        await saveEntry(created)
+        // Content is stored exactly as typed.
+        const created = createEntry({ date, content, language: chosenLanguage })
+        await persist(created)
         // replace: the back button should not return to an empty new form.
         navigate(`/entry/${created.id}`, { replace: true })
       }
@@ -121,6 +198,40 @@ export default function DiaryEditor({ entry }) {
           }}
         />
       </label>
+
+      <div className="field">
+        <label htmlFor={languageSelectId}>語言</label>
+        <select
+          id={languageSelectId}
+          value={language}
+          onChange={(event) => {
+            setLanguage(event.target.value)
+            clearMessages()
+          }}
+        >
+          {options.map((option) => (
+            <option key={`${option.kind}:${option.value}`} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {language === OTHER_OPTION_VALUE && (
+        <div className="field">
+          <label htmlFor={otherInputId}>語言名稱</label>
+          <input
+            id={otherInputId}
+            type="text"
+            value={otherLanguage}
+            placeholder="例如：韓文"
+            onChange={(event) => {
+              setOtherLanguage(event.target.value)
+              clearMessages()
+            }}
+          />
+        </div>
+      )}
 
       <label className="field">
         <span>內容</span>

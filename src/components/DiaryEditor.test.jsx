@@ -1,11 +1,18 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom'
 import DiaryEditor from './DiaryEditor.jsx'
-import { deleteEntry, saveEntry } from '../storage/connection.js'
+import {
+  deleteEntry,
+  loadSettings,
+  saveEntry,
+  saveEntryAddingLanguage,
+} from '../storage/connection.js'
 import { getLocalDateString } from '../lib/diary.js'
 
 vi.mock('../storage/connection.js', () => ({
+  loadSettings: vi.fn(),
   saveEntry: vi.fn(),
+  saveEntryAddingLanguage: vi.fn(),
   deleteEntry: vi.fn(),
 }))
 
@@ -62,12 +69,15 @@ const TODAY = '2026-10-25'
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date(2026, 9, 25, 12, 0, 0))
+  vi.mocked(loadSettings).mockResolvedValue({ customLanguages: [] })
 })
 
 afterEach(() => {
   vi.useRealTimers()
   vi.mocked(saveEntry).mockReset()
   vi.mocked(deleteEntry).mockReset()
+  vi.mocked(loadSettings).mockReset()
+  vi.mocked(saveEntryAddingLanguage).mockReset()
   vi.restoreAllMocks()
 })
 
@@ -380,5 +390,309 @@ describe('DiaryEditor (date limit)', () => {
     fireEvent.click(saveButton())
     // Future date is reported before the blank-content message.
     expect(screen.getByRole('alert')).toHaveTextContent('日期不能晚於今天')
+  })
+})
+
+describe('DiaryEditor (language)', () => {
+  const languageSelect = () => screen.getByLabelText('語言')
+  const otherInput = () => screen.getByLabelText('語言名稱')
+  const optionLabels = () =>
+    Array.from(languageSelect().options).map((option) => option.textContent)
+  const selectedLabel = () => languageSelect().selectedOptions[0].textContent
+
+  const item = (name, deleted = false) => ({
+    name,
+    updatedAt: '2026-10-01T00:00:00.000Z',
+    deleted,
+    deletedAt: deleted ? '2026-10-01T00:00:00.000Z' : null,
+  })
+
+  function withList(list) {
+    vi.mocked(loadSettings).mockResolvedValue({ customLanguages: list })
+  }
+
+  // Waits until the custom list from settings is reflected in the select.
+  async function waitForOption(label) {
+    await waitFor(() => expect(optionLabels()).toContain(label))
+  }
+
+  function fillContent(text = 'Bonjour') {
+    fireEvent.change(contentInput(), { target: { value: text } })
+  }
+
+  function chooseOther(text) {
+    fireEvent.change(languageSelect(), { target: { value: '' } })
+    fireEvent.change(otherInput(), { target: { value: text } })
+  }
+
+  it('sits between 日期 and 內容 and defaults to 自動判斷 for a new entry', async () => {
+    withList([item('韓文'), item('法文', true)])
+    renderEditor()
+    await waitForOption('韓文')
+    const fields = Array.from(document.querySelectorAll('input, select, textarea'))
+    expect(fields.indexOf(languageSelect())).toBe(fields.indexOf(dateInput()) + 1)
+    expect(fields.indexOf(contentInput())).toBe(fields.indexOf(languageSelect()) + 1)
+    expect(selectedLabel()).toBe('自動判斷')
+    // Deleted languages are not offered to other entries.
+    expect(optionLabels()).toEqual(['自動判斷', '日文', '英文', '韓文', '其他'])
+    expect(screen.queryByLabelText('語言名稱')).not.toBeInTheDocument()
+  })
+
+  it('gives the select the accessible name 語言 exactly', () => {
+    renderEditor()
+    // Exact match: the name must not include the option texts.
+    expect(screen.getByRole('combobox', { name: '語言' })).toBe(languageSelect())
+  })
+
+  it('saves a built-in language without touching the list', async () => {
+    vi.mocked(saveEntry).mockResolvedValue()
+    renderEditor()
+    fillContent()
+    fireEvent.change(languageSelect(), { target: { value: '日文' } })
+    fireEvent.click(saveButton())
+    expect(vi.mocked(saveEntry).mock.calls[0][0].language).toBe('日文')
+    expect(saveEntryAddingLanguage).not.toHaveBeenCalled()
+    await screen.findByText(/日記頁/)
+  })
+
+  it('shows a 語言名稱 field for 其他 and saves the trimmed custom language', async () => {
+    vi.mocked(saveEntryAddingLanguage).mockResolvedValue()
+    renderEditor()
+    fillContent()
+    fireEvent.change(languageSelect(), { target: { value: '' } })
+    expect(otherInput()).toHaveAttribute('placeholder', '例如：韓文')
+    fireEvent.change(otherInput(), { target: { value: '  韓文 ' } })
+    fireEvent.click(saveButton())
+
+    expect(saveEntry).not.toHaveBeenCalled()
+    expect(saveEntryAddingLanguage).toHaveBeenCalledTimes(1)
+    const [saved, added] = vi.mocked(saveEntryAddingLanguage).mock.calls[0]
+    expect(saved.language).toBe('韓文')
+    expect(added).toBe('韓文')
+    expect(await screen.findByText(`日記頁 ${saved.id}`)).toBeInTheDocument()
+  })
+
+  it.each([
+    ['日文', '日文'],
+    [' 英文 ', '英文'],
+    ['自動判斷', 'auto'],
+    ['auto', 'auto'],
+  ])('treats %j typed into 其他 as the existing option', async (typed, stored) => {
+    vi.mocked(saveEntry).mockResolvedValue()
+    renderEditor()
+    fillContent()
+    chooseOther(typed)
+    fireEvent.click(saveButton())
+    expect(vi.mocked(saveEntry).mock.calls[0][0].language).toBe(stored)
+    expect(saveEntryAddingLanguage).not.toHaveBeenCalled()
+    await screen.findByText(/日記頁/)
+  })
+
+  it('does not save a blank 其他 and keeps everything typed', () => {
+    renderEditor()
+    fireEvent.change(dateInput(), { target: { value: '2026-10-01' } })
+    fillContent('Keep me')
+    chooseOther('   ')
+    fireEvent.click(saveButton())
+    expect(screen.getByRole('alert')).toHaveTextContent('請輸入日記語言')
+    expect(saveEntry).not.toHaveBeenCalled()
+    expect(saveEntryAddingLanguage).not.toHaveBeenCalled()
+    expect(dateInput()).toHaveValue('2026-10-01')
+    expect(contentInput()).toHaveValue('Keep me')
+    expect(otherInput()).toHaveValue('   ')
+    expect(languageSelect()).toHaveValue('')
+  })
+
+  it('checks blank content before the language', () => {
+    renderEditor()
+    chooseOther('')
+    fireEvent.click(saveButton())
+    expect(screen.getByRole('alert')).toHaveTextContent('內容不能空白')
+  })
+
+  it('checks the date before the language', () => {
+    renderEditor()
+    fillContent()
+    chooseOther('')
+    fireEvent.change(dateInput(), { target: { value: '' } })
+    fireEvent.click(saveButton())
+    expect(screen.getByRole('alert')).toHaveTextContent('請選擇日期')
+  })
+
+  it('clears the language error when the user types a name', () => {
+    renderEditor()
+    fillContent()
+    chooseOther('')
+    fireEvent.click(saveButton())
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    fireEvent.change(otherInput(), { target: { value: '韓' } })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('still saves when the language list cannot be loaded', async () => {
+    const consoleSpy = vi.spyOn(console, 'error')
+    vi.mocked(loadSettings).mockRejectedValue(new Error('boom'))
+    vi.mocked(saveEntryAddingLanguage).mockResolvedValue()
+    renderEditor()
+    await waitFor(() => expect(loadSettings).toHaveBeenCalled())
+    expect(optionLabels()).toEqual(['自動判斷', '日文', '英文', '其他'])
+    fillContent()
+    chooseOther('泰文')
+    fireEvent.click(saveButton())
+    expect(saveEntryAddingLanguage).toHaveBeenCalledWith(
+      expect.objectContaining({ language: '泰文' }),
+      '泰文',
+    )
+    await screen.findByText(/日記頁/)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(consoleSpy).not.toHaveBeenCalled()
+  })
+
+  it('keeps the inputs and shows an error when saving with a custom language fails', async () => {
+    vi.mocked(saveEntryAddingLanguage).mockRejectedValue(new Error('boom'))
+    renderEditor()
+    fillContent('Keep me')
+    chooseOther('韓文')
+    fireEvent.click(saveButton())
+    expect(await screen.findByRole('alert')).toHaveTextContent('無法儲存日記')
+    expect(otherInput()).toHaveValue('韓文')
+    expect(contentInput()).toHaveValue('Keep me')
+  })
+
+  describe('edit mode', () => {
+    it('preselects the entry language', async () => {
+      withList([item('韓文')])
+      renderEditor({ ...existing, language: '韓文' })
+      await waitForOption('韓文')
+      expect(selectedLabel()).toBe('韓文')
+      expect(optionLabels().filter((label) => label === '韓文')).toHaveLength(1)
+    })
+
+    it.each([[undefined], [42], [''], ['   ']])(
+      'treats a missing or invalid language (%j) as 自動判斷',
+      (value) => {
+        renderEditor({ ...existing, language: value })
+        expect(selectedLabel()).toBe('自動判斷')
+      },
+    )
+
+    it('keeps showing a deleted custom language and does not re-add it on save', async () => {
+      withList([item('法文', true)])
+      vi.mocked(saveEntry).mockResolvedValue()
+      renderEditor({ ...existing, language: '法文' })
+      await waitFor(() => expect(loadSettings).toHaveBeenCalled())
+      expect(selectedLabel()).toBe('法文')
+      expect(optionLabels()).toEqual(['自動判斷', '日文', '英文', '法文', '其他'])
+      fillContent('Edited')
+      fireEvent.click(saveButton())
+      expect(await screen.findByText('已儲存')).toBeInTheDocument()
+      expect(vi.mocked(saveEntry).mock.calls[0][0].language).toBe('法文')
+      expect(saveEntryAddingLanguage).not.toHaveBeenCalled()
+    })
+
+    it('shows a custom language that was never listed', () => {
+      renderEditor({ ...existing, language: '泰文' })
+      expect(selectedLabel()).toBe('泰文')
+    })
+
+    it('counts a language-only change as a modification and keeps the analysis', async () => {
+      vi.mocked(saveEntry).mockResolvedValue()
+      const analysis = { grammarErrors: [] }
+      renderEditor({ ...existing, analysis })
+      fireEvent.change(languageSelect(), { target: { value: '英文' } })
+      fireEvent.click(saveButton())
+      expect(await screen.findByText('已儲存')).toBeInTheDocument()
+      const saved = vi.mocked(saveEntry).mock.calls[0][0]
+      expect(saved.language).toBe('英文')
+      expect(saved.content).toBe(existing.content)
+      expect(saved.analysis).toBe(analysis)
+      expect(saved.updatedAt > existing.updatedAt).toBe(true)
+    })
+
+    it('selects a newly added custom language after saving', async () => {
+      vi.mocked(saveEntryAddingLanguage).mockResolvedValue()
+      vi.mocked(saveEntry).mockResolvedValue()
+      renderEditor(existing)
+      await waitFor(() => expect(loadSettings).toHaveBeenCalled())
+      chooseOther(' 韓文 ')
+      fireEvent.click(saveButton())
+      expect(await screen.findByText('已儲存')).toBeInTheDocument()
+      expect(selectedLabel()).toBe('韓文')
+      expect(screen.queryByLabelText('語言名稱')).not.toBeInTheDocument()
+      expect(optionLabels()).toEqual(['自動判斷', '日文', '英文', '韓文', '其他'])
+
+      // Saving again keeps the language and does not add it again.
+      fillContent('Second save')
+      fireEvent.click(saveButton())
+      await waitFor(() => expect(saveEntry).toHaveBeenCalledTimes(1))
+      expect(vi.mocked(saveEntry).mock.calls[0][0].language).toBe('韓文')
+      expect(saveEntryAddingLanguage).toHaveBeenCalledTimes(1)
+    })
+
+    it('merges a language added by a save into a list that loads later', async () => {
+      let finishLoad
+      vi.mocked(loadSettings).mockReturnValue(
+        new Promise((resolve) => {
+          finishLoad = resolve
+        }),
+      )
+      vi.mocked(saveEntryAddingLanguage).mockResolvedValue()
+      renderEditor(existing)
+      chooseOther('韓文')
+      fireEvent.click(saveButton())
+      expect(await screen.findByText('已儲存')).toBeInTheDocument()
+      // The late result was read before the save and lacks 韓文; 韓文 is
+      // kept and the other saved languages still appear, without duplicates.
+      await act(async () =>
+        finishLoad({ customLanguages: [item('法文'), item('德文', true)] }),
+      )
+      expect(optionLabels()).toEqual(['自動判斷', '日文', '英文', '法文', '韓文', '其他'])
+      expect(selectedLabel()).toBe('韓文')
+    })
+
+    it('does not duplicate an added language that the late list already has', async () => {
+      let finishLoad
+      vi.mocked(loadSettings).mockReturnValue(
+        new Promise((resolve) => {
+          finishLoad = resolve
+        }),
+      )
+      vi.mocked(saveEntryAddingLanguage).mockResolvedValue()
+      renderEditor(existing)
+      chooseOther('韓文')
+      fireEvent.click(saveButton())
+      expect(await screen.findByText('已儲存')).toBeInTheDocument()
+      await act(async () => finishLoad({ customLanguages: [item('韓文'), item('法文')] }))
+      expect(optionLabels()).toEqual(['自動判斷', '日文', '英文', '韓文', '法文', '其他'])
+    })
+
+    it('still applies a list that loads after a save without a new language', async () => {
+      let finishLoad
+      vi.mocked(loadSettings).mockReturnValue(
+        new Promise((resolve) => {
+          finishLoad = resolve
+        }),
+      )
+      vi.mocked(saveEntry).mockResolvedValue()
+      renderEditor(existing)
+      fillContent('Edited')
+      fireEvent.click(saveButton())
+      expect(await screen.findByText('已儲存')).toBeInTheDocument()
+      await act(async () => finishLoad({ customLanguages: [item('法文')] }))
+      expect(optionLabels()).toContain('法文')
+    })
+
+    it('does not duplicate an active language typed into 其他', async () => {
+      withList([item('韓文')])
+      vi.mocked(saveEntryAddingLanguage).mockResolvedValue()
+      renderEditor(existing)
+      await waitForOption('韓文')
+      chooseOther('韓文')
+      fireEvent.click(saveButton())
+      expect(await screen.findByText('已儲存')).toBeInTheDocument()
+      expect(vi.mocked(saveEntryAddingLanguage).mock.calls[0][0].language).toBe('韓文')
+      expect(optionLabels().filter((label) => label === '韓文')).toHaveLength(1)
+      expect(selectedLabel()).toBe('韓文')
+    })
   })
 })

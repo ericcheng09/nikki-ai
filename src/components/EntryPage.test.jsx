@@ -5,7 +5,9 @@ import { loadEntry } from '../storage/connection.js'
 
 vi.mock('../storage/connection.js', () => ({
   loadEntry: vi.fn(),
+  loadSettings: vi.fn(() => Promise.resolve({ customLanguages: [] })),
   saveEntry: vi.fn(),
+  saveEntryAddingLanguage: vi.fn(),
   deleteEntry: vi.fn(),
 }))
 

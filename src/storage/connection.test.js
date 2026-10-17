@@ -6,6 +6,7 @@ import {
   loadEntries,
   loadEntry,
   saveEntry,
+  saveEntryAddingLanguage,
   loadSettings,
   updateSettings,
   isWelcomeSeenThisSession,
@@ -60,6 +61,31 @@ describe('default connection', () => {
   })
 })
 
+describe('saveEntryAddingLanguage', () => {
+  it('saves the entry and adds the language through the shared connection', async () => {
+    const entry = {
+      id: 'conn-lang-1',
+      date: '2026-10-17',
+      content: '안녕',
+      language: '韓文',
+      createdAt: '2026-10-17T01:00:00.000Z',
+      updatedAt: '2026-10-17T01:00:00.000Z',
+      deleted: false,
+      deletedAt: null,
+    }
+    await saveEntryAddingLanguage(entry, '韓文')
+    expect(await loadEntry('conn-lang-1')).toEqual(entry)
+    const { customLanguages } = await loadSettings()
+    expect(customLanguages.map((item) => item.name)).toContain('韓文')
+    await updateSettings({ customLanguages: [] })
+  })
+
+  it('rejects and saves nothing for an entry without an id', async () => {
+    await expect(saveEntryAddingLanguage({ content: 'x' }, '泰文')).rejects.toThrow()
+    expect((await loadSettings()).customLanguages).toEqual([])
+  })
+})
+
 describe('loadEntry', () => {
   it('returns the stored record for an id', async () => {
     const entry = { id: 'load-1', content: 'Hi', deleted: false }
@@ -99,9 +125,9 @@ describe('deleteEntry', () => {
 
 describe('settings', () => {
   it('reads defaults and saved values through the shared connection', async () => {
-    expect(await loadSettings()).toEqual({ welcomeSeen: false, geminiApiKey: '', geminiModel: '' })
+    expect(await loadSettings()).toEqual({ welcomeSeen: false, geminiApiKey: '', geminiModel: '', customLanguages: [] })
     await updateSettings({ welcomeSeen: true })
-    expect(await loadSettings()).toEqual({ welcomeSeen: true, geminiApiKey: '', geminiModel: '' })
+    expect(await loadSettings()).toEqual({ welcomeSeen: true, geminiApiKey: '', geminiModel: '', customLanguages: [] })
   })
 })
 
@@ -113,6 +139,6 @@ describe('markWelcomeSeen', () => {
     await markWelcomeSeen()
 
     expect(isWelcomeSeenThisSession()).toBe(true)
-    expect(await loadSettings()).toEqual({ welcomeSeen: true, geminiApiKey: '', geminiModel: '' })
+    expect(await loadSettings()).toEqual({ welcomeSeen: true, geminiApiKey: '', geminiModel: '', customLanguages: [] })
   })
 })

@@ -1,4 +1,10 @@
 // IndexedDB storage layer (spec 2.1, 4.1, 4.3).
+import {
+  activeLanguageNames,
+  addLanguage,
+  resolveLanguageInput,
+} from '../lib/languages.js'
+
 // Plain IndexedDB with small Promise helpers; no wrapper library.
 // Every function takes an open IDBDatabase so callers (and tests) control
 // which database instance is used. Errors always surface as rejected
@@ -10,20 +16,28 @@ export const ENTRIES_STORE = 'entries'
 export const SETTINGS_STORE = 'settings'
 
 // Known settings and their defaults (spec 4.3). Each setting is stored as
-// its own record keyed by name, so new fields (e.g. geminiApiKey in
-// Phase 2) are added here without a schema migration. Only keys listed
-// here can be read or written.
-const DEFAULT_SETTINGS = {
-  // Set once the user presses 開始使用 on the welcome page (spec 3.5).
-  // Local-only: never synced, so each device shows the page once.
-  welcomeSeen: false,
-  // The user's own Gemini API key (spec 4.3, 5.1); '' means not set.
-  // Synced via Google Drive from Phase 4. Never logged (spec 5.4).
-  geminiApiKey: '',
-  // Full model resource name, e.g. "models/gemini-2.5-flash"; '' means
-  // not chosen yet (spec 4.3). Synced via Google Drive from Phase 4.
-  geminiModel: '',
+// its own record keyed by name, so new fields are added here without a
+// schema migration. Only keys listed here can be read or written.
+// A function, not a shared object: customLanguages is an array, and every
+// caller must get its own copy so nobody can mutate the defaults.
+function createDefaultSettings() {
+  return {
+    // Set once the user presses 開始使用 on the welcome page (spec 3.5).
+    // Local-only: never synced, so each device shows the page once.
+    welcomeSeen: false,
+    // The user's own Gemini API key (spec 4.3, 5.1); '' means not set.
+    // Synced via Google Drive from Phase 4. Never logged (spec 5.4).
+    geminiApiKey: '',
+    // Full model resource name, e.g. "models/gemini-2.5-flash"; '' means
+    // not chosen yet (spec 4.3). Synced via Google Drive from Phase 4.
+    geminiModel: '',
+    // Custom diary languages, see src/lib/languages.js for the item shape
+    // (soft-deleted, never removed). Synced via Google Drive from Phase 4.
+    customLanguages: [],
+  }
 }
+
+const KNOWN_SETTING_KEYS = Object.freeze(Object.keys(createDefaultSettings()))
 
 export function openDatabase({ factory = globalThis.indexedDB, name = DB_NAME } = {}) {
   return new Promise((resolve, reject) => {
@@ -114,9 +128,9 @@ export async function putEntry(db, entry) {
 
 // Returns all known settings, filling in defaults for unset ones.
 export async function getSettings(db) {
-  const settings = { ...DEFAULT_SETTINGS }
+  const settings = createDefaultSettings()
   await runInStore(db, SETTINGS_STORE, 'readonly', (store) => {
-    for (const key of Object.keys(DEFAULT_SETTINGS)) {
+    for (const key of KNOWN_SETTING_KEYS) {
       const request = store.get(key)
       request.onsuccess = () => {
         if (request.result !== undefined) settings[key] = request.result
@@ -131,9 +145,47 @@ export async function getSettings(db) {
 export async function saveSettings(db, partial) {
   await runInStore(db, SETTINGS_STORE, 'readwrite', (store) => {
     for (const [key, value] of Object.entries(partial)) {
-      // Own-property check: `in` would also accept inherited names such as
-      // toString or constructor from Object.prototype.
-      if (Object.hasOwn(DEFAULT_SETTINGS, key)) store.put(value, key)
+      // An explicit list: `in` on an object would also accept inherited
+      // names such as toString or constructor from Object.prototype.
+      if (KNOWN_SETTING_KEYS.includes(key)) store.put(value, key)
+    }
+  })
+}
+
+// Saves an entry and, when `languageToAdd` is given, adds that custom
+// language to customLanguages, all in ONE transaction over both stores
+// (decisions.md Phase 2 日記語言). The current list is read inside the
+// transaction and changed there, so a stale copy in the UI (or a failed
+// earlier load) can never overwrite it, and the entry and the list are
+// saved together or not at all. Built-in, auto and already-active names
+// leave the settings record untouched.
+export async function putEntryAddingLanguage(
+  db,
+  entry,
+  languageToAdd,
+  { now = new Date() } = {},
+) {
+  await runTransaction(db, [ENTRIES_STORE, SETTINGS_STORE], 'readwrite', (tx) => {
+    tx.objectStore(ENTRIES_STORE).put(entry)
+    // Same rule as the editor: only custom names (not auto, built-ins or
+    // blank) belong in the list, compared after trimming.
+    const resolved = resolveLanguageInput(languageToAdd)
+    if (!resolved?.isCustom) return
+    const name = resolved.language
+    const settings = tx.objectStore(SETTINGS_STORE)
+    const request = settings.get('customLanguages')
+    request.onsuccess = () => {
+      try {
+        const current = request.result ?? []
+        // Already active: leave the record untouched (addLanguage would
+        // also tidy malformed data, which is not worth a write).
+        if (activeLanguageNames(current).includes(name)) return
+        settings.put(addLanguage(current, name, { now }), 'customLanguages')
+      } catch {
+        // Abort explicitly (rolling back the entry too) instead of letting
+        // the exception escape the event handler as an uncaught error.
+        tx.abort()
+      }
     }
   })
 }
