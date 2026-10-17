@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
 import DiaryList from './DiaryList.jsx'
+import HomeMenu from './HomeMenu.jsx'
 import {
   isWelcomeSeenThisSession,
   loadSettings,
@@ -38,9 +39,10 @@ export default function HomePage() {
 
   return (
     <>
-      <p className="home-links">
-        <Link to="/welcome">使用說明</Link>
-      </p>
+      {/* The menu lives only on the home page (decisions.md, Phase 2). */}
+      <div className="home-menu-bar">
+        <HomeMenu />
+      </div>
       <DiaryList />
     </>
   )

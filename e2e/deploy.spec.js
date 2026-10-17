@@ -75,6 +75,26 @@ test.describe('production build on GitHub Pages', () => {
     await expect(page.locator('ul.entries > li')).toHaveCount(1)
   })
 
+  test('opening and reloading ./settings: status 404, settings page renders', async ({ page }) => {
+    // Directly, as a first-time user: no redirect to the welcome page.
+    const direct = await page.goto('./settings')
+    expect(direct.status()).toBe(404)
+    await expect(page).toHaveURL(/\/nikki-ai\/settings$/)
+    await expect(page.getByRole('heading', { level: 2, name: '設定' })).toBeVisible()
+
+    // Reached through the home menu, then reloaded.
+    await startApp(page)
+    await page.getByRole('button', { name: '選單' }).click()
+    await page.getByRole('link', { name: '設定', exact: true }).click()
+    await expect(page).toHaveURL(/\/nikki-ai\/settings$/)
+    const reloaded = await page.reload()
+    expect(reloaded.status()).toBe(404)
+    await expect(page).toHaveURL(/\/nikki-ai\/settings$/)
+    await expect(page.getByRole('heading', { level: 2, name: '設定' })).toBeVisible()
+    await page.getByRole('link', { name: '回主畫面' }).click()
+    await expect(page).toHaveURL(HOME_URL)
+  })
+
   test('/nikki-ai redirects to /nikki-ai/', async ({ page, request }) => {
     const raw = await request.get('/nikki-ai', { maxRedirects: 0 })
     expect(raw.status()).toBe(301)

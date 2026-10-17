@@ -8,8 +8,8 @@ import {
 } from '../lib/welcomeSample.js'
 
 // First-use welcome page (spec 3.5). Shown automatically until the user
-// presses 開始使用, and reachable any time via the 使用說明 link. The sample
-// is rendered from constants; nothing here touches diary entries.
+// presses 開始使用, and reachable any time via 使用說明 in the home menu.
+// The sample is rendered from constants; nothing here touches diary entries.
 export default function WelcomePage() {
   const [busy, setBusy] = useState(false)
   // Synchronous lock against double clicks before React re-renders.

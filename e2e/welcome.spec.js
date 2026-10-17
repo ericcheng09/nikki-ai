@@ -19,6 +19,12 @@ const ANALYSIS_SECTIONS = [
 const entryItems = (page) => page.locator('ul.entries > li')
 const startButton = (page) => page.getByRole('button', { name: '開始使用' })
 
+// 使用說明 lives in the home page menu (spec 3.5).
+async function openGuideFromMenu(page) {
+  await page.getByRole('button', { name: '選單' }).click()
+  await page.getByRole('link', { name: '使用說明' }).click()
+}
+
 async function expectWelcomeContent(page) {
   await expect(page.getByRole('heading', { level: 2, name: '歡迎使用外語學習日記' })).toBeVisible()
   await expect(page.getByRole('heading', { level: 3, name: '這個 App 可以做什麼' })).toBeVisible()
@@ -158,10 +164,10 @@ test.describe('welcome page', () => {
     await expect(page).toHaveURL(WELCOME_URL)
   })
 
-  test('the 使用說明 link reopens the welcome page without resetting it', async ({ page }) => {
+  test('the menu 使用說明 item reopens the welcome page without resetting it', async ({ page }) => {
     await startApp(page)
 
-    await page.getByRole('link', { name: '使用說明' }).click()
+    await openGuideFromMenu(page)
     await expect(page).toHaveURL(WELCOME_URL)
     await expectWelcomeContent(page)
 
@@ -171,8 +177,8 @@ test.describe('welcome page', () => {
 
     // Still no automatic redirect afterwards.
     await expectHomeWithoutRedirect(page)
-    // Viewing it via the link and leaving another way changes nothing either.
-    await page.getByRole('link', { name: '使用說明' }).click()
+    // Viewing it via the menu and leaving another way changes nothing either.
+    await openGuideFromMenu(page)
     await expect(page).toHaveURL(WELCOME_URL)
     await page.getByRole('link', { name: '外語學習日記' }).click()
     await expect(page).toHaveURL(HOME_URL)
@@ -217,7 +223,7 @@ test.describe('welcome page', () => {
     await expectWelcomeContent(page)
     await startButton(page).click()
     await expect(page).toHaveURL(HOME_URL)
-    await page.getByRole('link', { name: '使用說明' }).click()
+    await openGuideFromMenu(page)
     await expect(page).toHaveURL(WELCOME_URL)
     expect(messages).toEqual([])
   })

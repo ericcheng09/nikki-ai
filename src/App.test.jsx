@@ -81,6 +81,30 @@ describe('App', () => {
     expect(loadSettings).not.toHaveBeenCalled()
   })
 
+  it('renders the settings page on /settings without the menu', () => {
+    renderAt('/settings')
+    expect(screen.getByRole('heading', { level: 2, name: '設定' })).toBeInTheDocument()
+    // The menu is only on the home page.
+    expect(screen.queryByRole('button', { name: '選單' })).not.toBeInTheDocument()
+  })
+
+  it('does not redirect a first-time user who opens /settings directly', () => {
+    vi.mocked(loadSettings).mockResolvedValue({ welcomeSeen: false })
+    renderAt('/settings')
+    expect(screen.getByRole('heading', { level: 2, name: '設定' })).toBeInTheDocument()
+    expect(loadSettings).not.toHaveBeenCalled()
+  })
+
+  it('opens settings from the home menu and returns home', async () => {
+    renderAt('/')
+    await screen.findByText(/還沒有日記/)
+    fireEvent.click(screen.getByRole('button', { name: '選單' }))
+    fireEvent.click(screen.getByRole('link', { name: '設定' }))
+    expect(screen.getByRole('heading', { level: 2, name: '設定' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('link', { name: '回主畫面' }))
+    expect(await screen.findByText(/還沒有日記/)).toBeInTheDocument()
+  })
+
   it('links the title back to the home route', () => {
     renderAt('/entry/new')
     expect(screen.getByRole('link', { name: '外語學習日記' })).toHaveAttribute('href', '/')
