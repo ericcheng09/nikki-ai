@@ -22,6 +22,12 @@
 | 10 | 主要流程（新增 → 儲存 → 重新整理後仍存在）E2E 通過 | 完成 | T4 起各 E2E |
 | 11 | README 包含簡介、部署網址、技術選型、本機安裝執行、測試執行 | 完成 | T8 |
 
+驗收條件以外的追加功能（使用者在 Phase 1 收尾時提出）：
+
+| 追加需求 | 狀態 | 主要實作 |
+|---|---|---|
+| 日期最晚只能選到今天（裝置時區），新增與編輯都適用；儲存時日期晚於今天不儲存，顯示「日期不能晚於今天」並保留內容；已存在的未來日期日記照常顯示 | 完成 | T9 |
+
 ---
 
 ## 2. 任務與 commit 對照（`git log main..dev/phase-1`）
@@ -43,6 +49,8 @@
 | `79d826f` | 文件 | decisions.md 補「首次使用說明」「AI 批改結果顯示」兩節 |
 | `2501c95` | T7 | GitHub Actions 部署、404.html、模擬 Pages 的測試伺服器、正式 build 的 E2E |
 | `44bb43c` | T8 | README |
+| `c48e62c` | 文件 | Phase 1 summary；decisions.md 把 CI E2E 的描述改正為 pages-server；README 補充區網 IP 的限制 |
+| `24800f8` | T9 | 日期上限（需求來源：使用者在 Phase 1 收尾時提出；decisions.md 的新條目由 Planner 依使用者指示寫入） |
 
 ---
 
@@ -57,14 +65,14 @@
 | `src/App.jsx` | 頁首與路由：`/`、`/welcome`、`/entry/new`、`/entry/:id` |
 | `src/index.css` | 版面與樣式 |
 | `src/setupTests.js` | 載入 jest-dom matchers |
-| `src/lib/diary.js` | 日記核心純函式：`isBlank`、`createEntry`、`updateEntry`、`softDeleteEntry`、`sortEntries`、`filterActiveEntries`、`getLocalDateString` |
+| `src/lib/diary.js` | 日記核心純函式：`isBlank`、`createEntry`、`updateEntry`、`softDeleteEntry`、`sortEntries`、`filterActiveEntries`、`getLocalDateString`、`isAfterToday`（T9） |
 | `src/lib/boldMarkup.js` | 將 `**` 標記解析為資料片段，供以 React 元素顯示粗體 |
 | `src/lib/welcomeSample.js` | 說明頁的範例日記與批改結果（程式常數，深度凍結，不存入 DB） |
 | `src/storage/db.js` | IndexedDB：開啟與升級、entries 讀寫（只有新增或覆蓋，沒有整筆刪除）、settings 讀寫（只接受已知 key） |
 | `src/storage/connection.js` | 全 App 共用單一 DB 連線；`loadEntries`、`loadEntry`、`saveEntry`、`deleteEntry`（軟刪除）、`loadSettings`、`updateSettings`、`markWelcomeSeen` |
 | `src/components/HomePage.jsx` | 主畫面：依 `welcomeSeen` 決定是否導向說明頁；「使用說明」連結與列表 |
 | `src/components/DiaryList.jsx` | 日記列表（過濾已刪除、排序、80 字預覽、載入中、空狀態、錯誤狀態） |
-| `src/components/DiaryEditor.jsx` | 新增與編輯表單、刪除按鈕、驗證與提示訊息 |
+| `src/components/DiaryEditor.jsx` | 新增與編輯表單、刪除按鈕、驗證與提示訊息；日期選擇器上限為今天（T9） |
 | `src/components/EntryPage.jsx` | `/entry/:id` 載入日記，找不到時顯示「找不到這篇日記」 |
 | `src/components/WelcomePage.jsx` | 首次使用說明頁與「開始使用」 |
 | `src/components/AnalysisView.jsx` | 唯讀批改結果顯示（Phase 2 沿用） |
@@ -105,6 +113,7 @@
 - 內容原樣保存，不去除前後空白。
 - 新增後跳到該篇日記頁（history replace，按上一頁回到列表）；編輯後留在原頁並顯示「已儲存」。
 - 編輯成空白不儲存，保留原內容；離開時不提醒未儲存的修改。
+- 日期上限（T9，使用者在 Phase 1 收尾時提出）：日期最晚只能選到今天（裝置時區），新增與編輯都適用。儲存時依序檢查：請選擇日期 → 日期不能晚於今天 → 內容不能空白。已存在的未來日期日記照常顯示，但只改內容也無法儲存，除非把日期改成今天或更早（使用者已確認接受）。
 - 刪除前使用瀏覽器內建確認視窗，確認後回主畫面。
 - 首次使用說明只在進入主畫面時判斷；讀取設定失敗時照常顯示列表；寫入失敗仍回主畫面，本次開啟期間不再導向。
 - 批改結果的空項目顯示方式、「→」「／」分隔符、`**` 的配對規則。
@@ -118,14 +127,23 @@
 
 ---
 
-## 5. Tester 驗收測試結果（Phase 1 結束驗收）
+## 5. Tester 驗收測試結果
+
+Phase 1 結束驗收（T1～T8）：
 
 - 單元測試：`npm test` 144 passed；`TZ=UTC` 下也是 144 passed。
 - E2E（開發伺服器）：29 passed、7 skipped（skip 的是部署專用的 `e2e/deploy.spec.js`，只對正式 build 有意義）。
 - E2E（正式 build，`npm run test:e2e:prod`）：36 passed。
 - E2E（`CI=1`）：36 passed；`CI=1` 搭配 repeat-each 3、retries 0，共 108 passed。
 - build 產出的 `index.html` 與 `404.html` 內容相同。
-- 驗收 1～7、9～11 通過；驗收 8 的實際部署待合併到 main 後驗證。
+
+T9 之後的最新結果：
+
+- 單元測試：`npm test` 156 passed。
+- E2E（開發伺服器）：37 passed、7 skipped。
+- E2E（正式 build）與 `CI=1`：各 44 passed。
+- 新增 `e2e/date-limit.spec.js`（8 個測試，含 Kiritimati、Pago Pago 兩個時區）；E2E 變異測試 4 種全部抓到。
+- 驗收 1～7、9～11 與 T9 追加需求通過；驗收 8 的實際部署待合併到 main 後驗證。
 
 ---
 
@@ -148,6 +166,7 @@
 
 ### 6.4 後續 phase 的注意事項
 
+- **「使用說明」入口移到設定頁**：使用者要求 Phase 2 做設定頁時，把「使用說明」入口從主畫面移到設定頁（可以是下拉選單的選項）。spec 3.5 目前規定「主畫面提供『使用說明』連結」，所以屆時要先修改 spec 3.5，再實作。
 - spec 3.5 規定說明頁文字每個 phase 結束時都要更新。Phase 2 要把「AI 批改功能即將推出」改掉並加上 API key 說明;Phase 4 要補充 Google Drive 同步的說明(說明頁目前寫「不會上傳到我們的伺服器」)。
 - Phase 2 的 JSON 驗證應保證:三個列表欄位是由物件組成的陣列、`alternatives` 有 1 到 2 個字串、文字欄位都是字串。建議也用同一個驗證函式驗證說明頁的範例常數。`analysis` 為 null(尚未批改)時由外層處理。
 - Phase 2 寫入批改結果需要專用函式,只能寫 `analysis` 欄位(`updateEntry` 只允許修改 content、date、language),以符合「不得覆蓋原文」。
@@ -161,8 +180,8 @@
 - `scripts/pages-server.js` 補斜線的 301 不保留 query string(只影響測試伺服器)。
 - 內容沒有修改也按儲存時,仍會更新 `updatedAt`。
 - 收到 `onversionchange` 關閉 DB 後,`connection.js` 仍沿用已關閉的連線,畫面只會提示重新整理;未來升級 DB 版本時需要處理。
-- `crypto.randomUUID()` 只在安全環境(HTTPS 或 localhost)可用,用區網 IP 以 http 連開發伺服器時無法新增日記。
-- `docs/decisions.md`「部署與測試」寫「CI 的 E2E 對正式 build(preview)執行」,但實際用的是 `scripts/pages-server.js`,不是 `vite preview`。用字的修改需經使用者確認。
+- ~~`crypto.randomUUID()` 只在安全環境（HTTPS 或 localhost）可用，用區網 IP 以 http 連開發伺服器時無法新增日記。~~ **已處理（`c48e62c`）**：README 已註明這個限制。
+- ~~`docs/decisions.md`「部署與測試」寫「CI 的 E2E 對正式 build（preview）執行」，但實際用的是 `scripts/pages-server.js`。~~ **已處理（`c48e62c`）**：已改正為 pages-server。
 
 ---
 
@@ -185,7 +204,7 @@
 
 ## 8. README 是否需要更新
 
-**Phase 1 不需要更新。**
+**建議補一行日期上限（T9），其餘不需要更新。**
 
 `README.md` 已包含 spec 8.1-11 與 spec 第 9 節 Phase 1 要求的全部內容,與現行程式一致:
 
@@ -196,7 +215,11 @@
 - 測試執行方式(`npm test`、`test:e2e`、`test:e2e:prod`、Playwright 瀏覽器安裝)
 - Pages 來源的一次性設定
 
-可選的小幅補充(不影響驗收):
+建議修改（T9 之後）：
 
-- 在「文件」一節加上 `docs/phases/phase-1-summary.md` 的連結。spec 第 9 節要求專案完成時才需要連結 phase summary,所以現在加不加都可以。
-- 註明用手機以區網 IP 連開發伺服器時無法新增日記(`crypto.randomUUID` 需要安全環境)。
+- 「目前功能（Phase 1）」的第一點目前寫「選擇日期（預設今天）」，建議改為：
+  `- 新增、編輯、刪除日記：選擇日期（預設今天，最晚只能選到今天），用任何外語輸入純文字內容；一天可以寫好幾篇。`
+
+已處理：區網 IP 的限制已在 `c48e62c` 補進 README。
+
+可選：在「文件」一節加上 `docs/phases/phase-1-summary.md` 的連結。spec 第 9 節要求專案完成時才需要，所以現在加不加都可以。
