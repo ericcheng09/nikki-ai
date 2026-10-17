@@ -1,2 +1,11 @@
+.claude/settings.local.json
+CLAUDE.local.md 
+
 notes/
-notes/
+ 
+.env
+.env.*
+!.env.example
+ 
+.DS_Store
+Thumbs.db
