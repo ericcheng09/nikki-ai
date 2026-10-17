@@ -7,6 +7,7 @@ import {
   loadEntry,
   saveEntry,
   saveEntryAddingLanguage,
+  deleteCustomLanguage,
   loadSettings,
   updateSettings,
   isWelcomeSeenThisSession,
@@ -83,6 +84,24 @@ describe('saveEntryAddingLanguage', () => {
   it('rejects and saves nothing for an entry without an id', async () => {
     await expect(saveEntryAddingLanguage({ content: 'x' }, '泰文')).rejects.toThrow()
     expect((await loadSettings()).customLanguages).toEqual([])
+  })
+})
+
+describe('deleteCustomLanguage', () => {
+  it('soft-deletes through the shared connection', async () => {
+    await updateSettings({
+      customLanguages: [
+        { name: '韓文', updatedAt: '2026-10-01T00:00:00.000Z', deleted: false, deletedAt: null },
+      ],
+    })
+    await expect(deleteCustomLanguage('韓文')).resolves.toEqual([])
+    const [stored] = (await loadSettings()).customLanguages
+    expect(stored).toMatchObject({ name: '韓文', deleted: true })
+    await updateSettings({ customLanguages: [] })
+  })
+
+  it('resolves with the unchanged list for an unknown name', async () => {
+    await expect(deleteCustomLanguage('不存在')).resolves.toEqual([])
   })
 })
 

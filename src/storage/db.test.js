@@ -10,6 +10,7 @@ import {
   getSettings,
   saveSettings,
   putEntryAddingLanguage,
+  removeCustomLanguage,
 } from './db.js'
 
 const entry = (overrides = {}) => ({
@@ -313,5 +314,61 @@ describe('putEntryAddingLanguage', () => {
     ).rejects.toThrow()
     expect(await getAllEntries(db)).toEqual([])
     expect((await getSettings(db)).customLanguages).toEqual([item('法文')])
+  })
+})
+
+describe('removeCustomLanguage', () => {
+  const NOW = new Date('2026-10-18T00:00:00.000Z')
+  const NOW_ISO = NOW.toISOString()
+  const item = (name, overrides = {}) => ({
+    name,
+    updatedAt: '2026-10-01T00:00:00.000Z',
+    deleted: false,
+    deletedAt: null,
+    ...overrides,
+  })
+
+  it('soft-deletes the language and resolves with the remaining active names', async () => {
+    await saveSettings(db, { customLanguages: [item('韓文'), item('法文')] })
+    await expect(removeCustomLanguage(db, '韓文', { now: NOW })).resolves.toEqual(['法文'])
+    expect((await getSettings(db)).customLanguages).toEqual([
+      item('韓文', { updatedAt: NOW_ISO, deleted: true, deletedAt: NOW_ISO }),
+      item('法文'),
+    ])
+  })
+
+  it('does not touch entries', async () => {
+    await putEntry(db, entry({ language: '韓文' }))
+    await saveSettings(db, { customLanguages: [item('韓文')] })
+    await removeCustomLanguage(db, '韓文', { now: NOW })
+    expect(await getAllEntries(db)).toEqual([entry({ language: '韓文' })])
+  })
+
+  it('writes nothing for a missing, deleted or blank name', async () => {
+    const tombstone = item('法文', { deleted: true, deletedAt: '2026-10-02T00:00:00.000Z' })
+    await saveSettings(db, { customLanguages: [item('韓文'), tombstone] })
+    for (const name of ['德文', '法文', '', null]) {
+      await expect(removeCustomLanguage(db, name, { now: NOW })).resolves.toEqual(['韓文'])
+    }
+    expect((await getSettings(db)).customLanguages).toEqual([item('韓文'), tombstone])
+  })
+
+  it('resolves with an empty list when nothing is stored', async () => {
+    await expect(removeCustomLanguage(db, '韓文', { now: NOW })).resolves.toEqual([])
+    expect((await getSettings(db)).customLanguages).toEqual([])
+  })
+
+  it('works on the stored list, not a stale copy', async () => {
+    await saveSettings(db, { customLanguages: [item('韓文')] })
+    // Another tab added 法文 after this page loaded its list.
+    await putEntryAddingLanguage(db, entry(), '法文', { now: NOW })
+    await expect(removeCustomLanguage(db, '韓文', { now: NOW })).resolves.toEqual(['法文'])
+  })
+
+  it('rejects and keeps the list when the update fails', async () => {
+    await saveSettings(db, { customLanguages: [item('韓文')] })
+    const brokenNow = { toISOString: () => { throw new Error('clock') } }
+    await expect(removeCustomLanguage(db, '韓文', { now: brokenNow })).rejects.toThrow()
+    expect((await getSettings(db)).customLanguages).toEqual([item('韓文')])
   })
 })

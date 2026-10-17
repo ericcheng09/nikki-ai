@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import ApiKeySettings from './ApiKeySettings.jsx'
 import ModelSettings from './ModelSettings.jsx'
+import LanguageListSettings from './LanguageListSettings.jsx'
 
-// Settings page (spec 3.6). The language list section is added by a later
-// task. Not guarded by welcomeSeen, so opening /settings directly never
-// redirects.
+// Settings page (spec 3.6). Not guarded by welcomeSeen, so opening
+// /settings directly never redirects.
 export default function SettingsPage() {
   // The stored API key as reported by ApiKeySettings; '' = none (yet).
   const [apiKey, setApiKey] = useState('')
@@ -28,6 +28,8 @@ export default function SettingsPage() {
       {/* Model choice needs a key to query with; hidden (but kept in
           storage) once the key is deleted. */}
       {apiKey && <ModelSettings key={keyVersion} apiKey={apiKey} />}
+      {/* Independent of the API key. */}
+      <LanguageListSettings />
     </section>
   )
 }

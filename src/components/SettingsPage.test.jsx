@@ -7,6 +7,7 @@ import { listModels } from '../lib/gemini.js'
 vi.mock('../storage/connection.js', () => ({
   loadSettings: vi.fn(),
   updateSettings: vi.fn(),
+  deleteCustomLanguage: vi.fn(),
 }))
 vi.mock('../lib/gemini.js', () => ({ listModels: vi.fn() }))
 
@@ -139,5 +140,37 @@ describe('SettingsPage', () => {
       FLASH.name,
     ])
     expect(updateSettings).not.toHaveBeenCalledWith({ geminiModel: 'models/gemini-old-flash' })
+  })
+
+  it('shows the language list without an API key, after the API key section', async () => {
+    renderSettings()
+    await keyInput()
+    const headings = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)
+    expect(headings).toEqual(['Gemini API key', '語言清單'])
+  })
+
+  it('places the language list after the model section when a key is saved', async () => {
+    vi.mocked(loadSettings).mockResolvedValue({
+      geminiApiKey: 'test-key-123',
+      geminiModel: FLASH.name,
+      customLanguages: [],
+    })
+    renderSettings()
+    await screen.findByLabelText('模型')
+    const headings = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)
+    expect(headings).toEqual(['Gemini API key', 'Gemini 模型', '語言清單'])
+  })
+
+  it('keeps the language list when the API key is deleted', async () => {
+    vi.mocked(loadSettings).mockResolvedValue({
+      geminiApiKey: 'test-key-123',
+      geminiModel: FLASH.name,
+      customLanguages: [],
+    })
+    renderSettings()
+    await screen.findByLabelText('模型')
+    fireEvent.click(screen.getByRole('button', { name: '刪除' }))
+    await screen.findByText('已刪除')
+    expect(screen.getByRole('heading', { name: '語言清單' })).toBeInTheDocument()
   })
 })

@@ -7,6 +7,7 @@ import {
   getAllEntries,
   putEntry,
   putEntryAddingLanguage,
+  removeCustomLanguage,
   getSettings,
   saveSettings,
 } from './db.js'
@@ -62,6 +63,12 @@ export async function loadEntry(id) {
 // replaced by a tombstone, which drops content and analysis immediately.
 export async function deleteEntry(entry) {
   await saveEntry(softDeleteEntry(entry))
+}
+
+// Soft-deletes a custom language and resolves with the remaining active
+// names; see removeCustomLanguage in db.js.
+export async function deleteCustomLanguage(name) {
+  return removeCustomLanguage(await getDb(), name)
 }
 
 // All known settings with defaults filled in (spec 4.3).

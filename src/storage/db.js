@@ -2,6 +2,7 @@
 import {
   activeLanguageNames,
   addLanguage,
+  removeLanguage,
   resolveLanguageInput,
 } from '../lib/languages.js'
 
@@ -187,5 +188,33 @@ export async function putEntryAddingLanguage(
         tx.abort()
       }
     }
+  })
+}
+
+// Soft-deletes a custom language (settings page, spec 3.6). Like
+// putEntryAddingLanguage, the list is read and written inside one
+// transaction so a stale copy in the UI cannot overwrite it. Entries are
+// not touched: they keep their language. Resolves with the active names
+// after the change; a missing or already deleted name writes nothing.
+export function removeCustomLanguage(db, name, { now = new Date() } = {}) {
+  return runTransaction(db, SETTINGS_STORE, 'readwrite', (tx) => {
+    const settings = tx.objectStore(SETTINGS_STORE)
+    const request = settings.get('customLanguages')
+    let activeNames = []
+    request.onsuccess = () => {
+      try {
+        const current = request.result ?? []
+        activeNames = activeLanguageNames(current)
+        const target = resolveLanguageInput(name)?.language
+        if (!activeNames.includes(target)) return
+        const next = removeLanguage(current, target, { now })
+        settings.put(next, 'customLanguages')
+        activeNames = activeLanguageNames(next)
+      } catch {
+        // See putEntryAddingLanguage: abort instead of an uncaught error.
+        tx.abort()
+      }
+    }
+    return () => activeNames
   })
 }

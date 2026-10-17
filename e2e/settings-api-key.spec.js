@@ -12,7 +12,9 @@ const AI_STUDIO_URL = 'https://aistudio.google.com/apikey'
 
 const keyInput = (page) => page.getByLabel('API key', { exact: true })
 const saveButton = (page) => page.getByRole('button', { name: '儲存' })
-const deleteButton = (page) => page.getByRole('button', { name: '刪除' })
+// Scoped to the API key section so the language list's 「刪除 <name>」 buttons
+// can never match.
+const deleteButton = (page) => keySection(page).getByRole('button', { name: '刪除', exact: true })
 const showButton = (page) => page.getByRole('button', { name: '顯示' })
 const hideButton = (page) => page.getByRole('button', { name: '隱藏' })
 const statusSet = (page) => page.getByText('目前已設定 API key', { exact: true })
