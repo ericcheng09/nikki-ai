@@ -10,8 +10,8 @@ export default defineConfig({
     environment: 'jsdom',
     // Enables global afterEach so @testing-library/react auto-cleans up between tests.
     globals: true,
-    // Only pick up unit tests under src/; Playwright specs in e2e/ must not run in Vitest.
-    include: ['src/**/*.test.{js,jsx}'],
+    // Unit tests live in src/ and scripts/; Playwright specs in e2e/ must not run in Vitest.
+    include: ['src/**/*.test.{js,jsx}', 'scripts/**/*.test.js'],
     setupFiles: ['src/setupTests.js'],
     // Pin a non-UTC timezone so local-date tests catch accidental UTC usage
     // (e.g. toISOString()) even on CI machines that run in UTC.

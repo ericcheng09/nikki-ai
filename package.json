@@ -7,7 +7,8 @@
     "dev": "vite",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "build": "vite build",
+    "test:e2e:prod": "npm run build && playwright test --config playwright.prod.config.js",
+    "build": "vite build && node scripts/copy-404.js",
     "preview": "vite preview"
   },
   "dependencies": {
