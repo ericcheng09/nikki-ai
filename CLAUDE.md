@@ -33,7 +33,7 @@ React、Vite、npm、IndexedDB、Vitest（單元測試）、Playwright（E2E 測
 - **AI 批改結果不得寫回或覆蓋使用者的日記原文。**
 - **AI 回傳內容不得以原始 HTML 渲染**，不使用 `dangerouslySetInnerHTML`。
 - **不得 commit 任何 API key 或金鑰**，這是公開 repo。API key 不得送往 Gemini API 以外的地方，也不得寫入 log。
-- 刪除日記一律採軟刪除（規格第 4、6 節），從 Phase 1 開始就要遵守；唯一例外是範例日記，刪除時直接移除（規格 3.5）。
+- 刪除日記一律採軟刪除（規格第 4、6 節），從 Phase 1 開始就要遵守。
 - 規格第 7 節列出的核心邏輯以 TDD 進行。
 - E2E 測試中的 AI 回應一律使用模擬資料，不實際呼叫 Gemini API。
 - App 介面文字使用中文；程式碼註解使用英文。
