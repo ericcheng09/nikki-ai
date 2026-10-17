@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import {
   createEntry,
   getLocalDateString,
+  isAfterToday,
   isBlank,
   updateEntry,
 } from '../lib/diary.js'
@@ -50,6 +51,13 @@ export default function DiaryEditor({ entry }) {
     if (!date) {
       setNotice('')
       setError('請選擇日期')
+      return
+    }
+    // The max attribute only limits the picker UI (and may be stale after
+    // midnight), so check again against today at the moment of saving.
+    if (isAfterToday(date)) {
+      setNotice('')
+      setError('日期不能晚於今天')
       return
     }
     // Blank content is never saved; in edit mode the stored text stays.
@@ -104,6 +112,8 @@ export default function DiaryEditor({ entry }) {
         <span>日期</span>
         <input
           type="date"
+          // Latest selectable date is today (local); recomputed on render.
+          max={getLocalDateString()}
           value={date}
           onChange={(event) => {
             setDate(event.target.value)

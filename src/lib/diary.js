@@ -83,3 +83,11 @@ export function getLocalDateString(date = new Date()) {
   const d = String(date.getDate()).padStart(2, '0')
   return `${y}-${m}-${d}`
 }
+
+// True when a 'YYYY-MM-DD' date is later than today in the user's local
+// timezone. Fixed-width ISO dates compare correctly as plain strings.
+// `now` is evaluated per call so a page left open past midnight still uses
+// the current day.
+export function isAfterToday(date, now = new Date()) {
+  return date > getLocalDateString(now)
+}

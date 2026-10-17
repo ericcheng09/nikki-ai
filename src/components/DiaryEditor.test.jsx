@@ -56,7 +56,16 @@ function deferred() {
   return { promise, resolve }
 }
 
+// "Today" is fixed so date-limit checks are deterministic. Only Date is
+// faked; real timers keep Testing Library's async helpers working.
+const TODAY = '2026-10-25'
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date(2026, 9, 25, 12, 0, 0))
+})
+
 afterEach(() => {
+  vi.useRealTimers()
   vi.mocked(saveEntry).mockReset()
   vi.mocked(deleteEntry).mockReset()
   vi.restoreAllMocks()
@@ -65,6 +74,7 @@ afterEach(() => {
 describe('DiaryEditor (new entry)', () => {
   it('defaults the date picker to today in local time', () => {
     renderEditor()
+    expect(dateInput()).toHaveValue(TODAY)
     expect(screen.getByRole('heading', { name: '新增日記' })).toBeInTheDocument()
     expect(dateInput()).toHaveAttribute('type', 'date')
     expect(dateInput()).toHaveValue(getLocalDateString())
@@ -293,5 +303,82 @@ describe('DiaryEditor (edit entry)', () => {
     expect(deleteEntry).toHaveBeenCalledTimes(1)
 
     await act(async () => pending.resolve())
+  })
+})
+
+describe('DiaryEditor (date limit)', () => {
+  it.each([
+    ['new', undefined],
+    ['edit', existing],
+  ])('limits the date picker to today (%s)', (_mode, entry) => {
+    renderEditor(entry)
+    expect(dateInput()).toHaveAttribute('max', TODAY)
+  })
+
+  it('does not save a new entry dated after today and keeps the input', () => {
+    renderEditor()
+    fireEvent.change(dateInput(), { target: { value: '2026-10-26' } })
+    fireEvent.change(contentInput(), { target: { value: 'Tomorrow' } })
+    fireEvent.click(saveButton())
+
+    expect(screen.getByRole('alert')).toHaveTextContent('日期不能晚於今天')
+    expect(saveEntry).not.toHaveBeenCalled()
+    expect(contentInput()).toHaveValue('Tomorrow')
+    expect(dateInput()).toHaveValue('2026-10-26')
+  })
+
+  it('does not save an edit that moves the date after today', () => {
+    renderEditor(existing)
+    fireEvent.change(dateInput(), { target: { value: '2027-01-01' } })
+    fireEvent.change(contentInput(), { target: { value: 'Edited' } })
+    fireEvent.click(saveButton())
+
+    expect(screen.getByRole('alert')).toHaveTextContent('日期不能晚於今天')
+    expect(saveEntry).not.toHaveBeenCalled()
+    expect(contentInput()).toHaveValue('Edited')
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
+  })
+
+  it('blocks saving an existing entry that is already dated in the future', () => {
+    renderEditor({ ...existing, date: '2026-12-31' })
+    expect(dateInput()).toHaveValue('2026-12-31')
+    fireEvent.click(saveButton())
+
+    expect(screen.getByRole('alert')).toHaveTextContent('日期不能晚於今天')
+    expect(saveEntry).not.toHaveBeenCalled()
+  })
+
+  it('saves an entry dated today', async () => {
+    vi.mocked(saveEntry).mockResolvedValue()
+    renderEditor()
+    fireEvent.change(dateInput(), { target: { value: TODAY } })
+    fireEvent.change(contentInput(), { target: { value: 'Today' } })
+    fireEvent.click(saveButton())
+
+    const saved = vi.mocked(saveEntry).mock.calls[0][0]
+    expect(saved.date).toBe(TODAY)
+    expect(await screen.findByText(`日記頁 ${saved.id}`)).toBeInTheDocument()
+  })
+
+  it('re-evaluates today when saving, e.g. after the page stayed open past midnight', async () => {
+    vi.mocked(saveEntry).mockResolvedValue()
+    vi.setSystemTime(new Date(2026, 9, 25, 23, 59, 0))
+    renderEditor()
+    // Midnight passes while the form is open: Oct 26 becomes today.
+    vi.setSystemTime(new Date(2026, 9, 26, 0, 1, 0))
+    fireEvent.change(dateInput(), { target: { value: '2026-10-26' } })
+    fireEvent.change(contentInput(), { target: { value: 'After midnight' } })
+    fireEvent.click(saveButton())
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(vi.mocked(saveEntry).mock.calls[0][0].date).toBe('2026-10-26')
+  })
+
+  it('reports a future date before checking for blank content', () => {
+    renderEditor()
+    fireEvent.change(dateInput(), { target: { value: '2026-10-26' } })
+    fireEvent.click(saveButton())
+    // Future date is reported before the blank-content message.
+    expect(screen.getByRole('alert')).toHaveTextContent('日期不能晚於今天')
   })
 })

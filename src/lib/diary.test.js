@@ -6,6 +6,7 @@ import {
   sortEntries,
   filterActiveEntries,
   getLocalDateString,
+  isAfterToday,
 } from './diary.js'
 
 const NOW = new Date('2026-10-17T03:04:05.678Z')
@@ -242,5 +243,32 @@ describe('getLocalDateString', () => {
 
   it('defaults to the current date', () => {
     expect(getLocalDateString()).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+})
+
+describe('isAfterToday', () => {
+  // Local noon on 2026-10-17 (TZ is pinned to Asia/Taipei).
+  const now = new Date(2026, 9, 17, 12, 0, 0)
+
+  it('returns true for a date after the local today', () => {
+    expect(isAfterToday('2026-10-18', now)).toBe(true)
+    expect(isAfterToday('2027-01-01', now)).toBe(true)
+  })
+
+  it('returns false for today and earlier dates', () => {
+    expect(isAfterToday('2026-10-17', now)).toBe(false)
+    expect(isAfterToday('2026-10-16', now)).toBe(false)
+    expect(isAfterToday('1999-12-31', now)).toBe(false)
+  })
+
+  it('uses the local calendar day near midnight, not UTC', () => {
+    // 00:30 local on Oct 18 is still Oct 17 in UTC; Oct 18 is today here.
+    expect(isAfterToday('2026-10-18', new Date(2026, 9, 18, 0, 30))).toBe(false)
+    // 23:59 local on Oct 17: Oct 18 is still in the future.
+    expect(isAfterToday('2026-10-18', new Date(2026, 9, 17, 23, 59))).toBe(true)
+  })
+
+  it('returns false for an empty date', () => {
+    expect(isAfterToday('', now)).toBe(false)
   })
 })
