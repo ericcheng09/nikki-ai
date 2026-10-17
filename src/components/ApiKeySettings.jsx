@@ -6,7 +6,10 @@ const AI_STUDIO_URL = 'https://aistudio.google.com/apikey'
 // Gemini API key section of the settings page (spec 3.6, 5.1).
 // The key is only kept in IndexedDB; it never appears in messages and is
 // never logged (spec 5.4), so every catch below stays silent.
-export default function ApiKeySettings() {
+// `onKeyChange(key)` is called with the stored key once it is loaded and
+// after every successful save or delete ('' = no key), so the page can
+// show or refresh the model section.
+export default function ApiKeySettings({ onKeyChange }) {
   // status: 'loading' | 'ready' | 'error'
   const [status, setStatus] = useState('loading')
   // The key currently stored; '' means not set.
@@ -19,6 +22,12 @@ export default function ApiKeySettings() {
   // Synchronous lock against double clicks before React re-renders.
   const busyRef = useRef(false)
   const inputId = useId()
+  // Kept in a ref so the load effect does not re-run when the parent
+  // passes a new callback on every render.
+  const onKeyChangeRef = useRef(onKeyChange)
+  useEffect(() => {
+    onKeyChangeRef.current = onKeyChange
+  })
 
   useEffect(() => {
     let active = true
@@ -29,6 +38,7 @@ export default function ApiKeySettings() {
         setSavedKey(key)
         setValue(key)
         setStatus('ready')
+        onKeyChangeRef.current?.(key)
       })
       .catch(() => {
         if (active) setStatus('error')
@@ -53,6 +63,7 @@ export default function ApiKeySettings() {
       await updateSettings({ geminiApiKey: key })
       setSavedKey(key)
       setValue(key)
+      onKeyChangeRef.current?.(key)
       return true
     } catch {
       setError('無法儲存設定，請重新整理頁面後再試一次。')

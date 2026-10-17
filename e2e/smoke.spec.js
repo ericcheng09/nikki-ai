@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './helpers.js'
 
 // Smoke test: the app is served under the GitHub Pages base path and shows the Chinese title.
 test('home page under /nikki-ai/ shows the Chinese title', async ({ page }) => {

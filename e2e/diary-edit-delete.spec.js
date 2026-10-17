@@ -1,5 +1,4 @@
-import { test, expect } from '@playwright/test'
-import { startApp } from './helpers.js'
+import { test, expect, startApp } from './helpers.js'
 
 // E2E for T5: open, edit and (soft) delete diary entries.
 // Each test runs in a fresh browser context, so IndexedDB starts empty and

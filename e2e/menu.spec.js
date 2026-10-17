@@ -1,5 +1,4 @@
-import { test, expect } from '@playwright/test'
-import { HOME_URL, WELCOME_URL, readStore, startApp } from './helpers.js'
+import { test, expect, HOME_URL, WELCOME_URL, readStore, startApp } from './helpers.js'
 
 // E2E for Phase 2 T1: the home page menu (設定 / 使用說明) and the settings
 // page skeleton (spec 3.5, 3.6, 8.1-7; decisions.md Phase 2).

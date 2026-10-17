@@ -20,6 +20,9 @@ const DEFAULT_SETTINGS = {
   // The user's own Gemini API key (spec 4.3, 5.1); '' means not set.
   // Synced via Google Drive from Phase 4. Never logged (spec 5.4).
   geminiApiKey: '',
+  // Full model resource name, e.g. "models/gemini-2.5-flash"; '' means
+  // not chosen yet (spec 4.3). Synced via Google Drive from Phase 4.
+  geminiModel: '',
 }
 
 export function openDatabase({ factory = globalThis.indexedDB, name = DB_NAME } = {}) {

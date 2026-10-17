@@ -1,12 +1,17 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import SettingsPage from './SettingsPage.jsx'
-import { loadSettings } from '../storage/connection.js'
+import { loadSettings, updateSettings } from '../storage/connection.js'
+import { listModels } from '../lib/gemini.js'
 
 vi.mock('../storage/connection.js', () => ({
   loadSettings: vi.fn(),
   updateSettings: vi.fn(),
 }))
+vi.mock('../lib/gemini.js', () => ({ listModels: vi.fn() }))
+
+const FLASH = { name: 'models/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' }
+const PRO = { name: 'models/gemini-2.5-pro', displayName: 'Gemini 2.5 Pro' }
 
 function renderSettings() {
   return render(
@@ -20,8 +25,29 @@ function renderSettings() {
 }
 
 beforeEach(() => {
-  vi.mocked(loadSettings).mockResolvedValue({ welcomeSeen: true, geminiApiKey: '' })
+  vi.mocked(loadSettings).mockResolvedValue({
+    welcomeSeen: true,
+    geminiApiKey: '',
+    geminiModel: '',
+  })
+  vi.mocked(updateSettings).mockResolvedValue(undefined)
+  vi.mocked(listModels).mockResolvedValue([FLASH])
 })
+
+afterEach(() => {
+  vi.mocked(loadSettings).mockReset()
+  vi.mocked(updateSettings).mockReset()
+  vi.mocked(listModels).mockReset()
+})
+
+function keyInput() {
+  return screen.findByLabelText('API key')
+}
+
+function saveKey(input, value) {
+  fireEvent.change(input, { target: { value } })
+  fireEvent.click(screen.getByRole('button', { name: '儲存' }))
+}
 
 describe('SettingsPage', () => {
   it('shows the 設定 heading, a link back home and the API key section', async () => {
@@ -38,5 +64,80 @@ describe('SettingsPage', () => {
     await screen.findByText('尚未設定 API key')
     fireEvent.click(screen.getByRole('link', { name: '回主畫面' }))
     expect(screen.getByText('主畫面')).toBeInTheDocument()
+  })
+
+  it('hides the model section while no key is saved', async () => {
+    renderSettings()
+    await keyInput()
+    expect(screen.queryByRole('heading', { name: 'Gemini 模型' })).not.toBeInTheDocument()
+    expect(listModels).not.toHaveBeenCalled()
+  })
+
+  it('queries models on open when a key is already saved', async () => {
+    vi.mocked(loadSettings).mockResolvedValue({
+      geminiApiKey: 'test-key-123',
+      geminiModel: FLASH.name,
+    })
+    renderSettings()
+    expect(await screen.findByLabelText('模型')).toHaveValue(FLASH.name)
+    expect(listModels).toHaveBeenCalledWith('test-key-123')
+  })
+
+  it('shows the model section and queries right after a key is saved', async () => {
+    renderSettings()
+    const input = await keyInput()
+    saveKey(input, 'test-key-123')
+    expect(await screen.findByLabelText('模型')).toHaveValue(FLASH.name)
+    expect(listModels).toHaveBeenCalledWith('test-key-123')
+  })
+
+  it('queries again when a key is saved again, using the new key', async () => {
+    vi.mocked(loadSettings).mockResolvedValue({ geminiApiKey: 'test-key-123', geminiModel: '' })
+    renderSettings()
+    const input = await keyInput()
+    await screen.findByLabelText('模型')
+    saveKey(input, 'test-key-456')
+    await screen.findByText('已儲存')
+    await vi.waitFor(() => expect(listModels).toHaveBeenLastCalledWith('test-key-456'))
+  })
+
+  it('hides the model section after the key is deleted, keeping the model', async () => {
+    vi.mocked(loadSettings).mockResolvedValue({
+      geminiApiKey: 'test-key-123',
+      geminiModel: FLASH.name,
+    })
+    renderSettings()
+    await screen.findByLabelText('模型')
+    fireEvent.click(screen.getByRole('button', { name: '刪除' }))
+    expect(await screen.findByText('已刪除')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Gemini 模型' })).not.toBeInTheDocument()
+    // Only the key is cleared; geminiModel is never written.
+    expect(updateSettings).toHaveBeenCalledTimes(1)
+    expect(updateSettings).toHaveBeenCalledWith({ geminiApiKey: '' })
+  })
+
+  it('ignores a slower model query for a key that was replaced', async () => {
+    let resolveOld
+    vi.mocked(listModels)
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveOld = resolve
+        }),
+      )
+      .mockResolvedValueOnce([PRO, FLASH])
+    vi.mocked(loadSettings).mockResolvedValue({ geminiApiKey: 'test-key-123', geminiModel: '' })
+    renderSettings()
+    const input = await keyInput()
+    await vi.waitFor(() => expect(listModels).toHaveBeenCalledTimes(1))
+    saveKey(input, 'test-key-456')
+    const select = await screen.findByLabelText('模型')
+    expect(Array.from(select.options).map((o) => o.value)).toEqual([PRO.name, FLASH.name])
+    // The first query answers late with a different list.
+    await act(async () => resolveOld([{ name: 'models/gemini-old-flash', displayName: '' }]))
+    expect(Array.from(screen.getByLabelText('模型').options).map((o) => o.value)).toEqual([
+      PRO.name,
+      FLASH.name,
+    ])
+    expect(updateSettings).not.toHaveBeenCalledWith({ geminiModel: 'models/gemini-old-flash' })
   })
 })

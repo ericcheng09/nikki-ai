@@ -124,22 +124,35 @@ describe('settings', () => {
   it('reads back a saved geminiApiKey without touching other settings', async () => {
     await saveSettings(db, { welcomeSeen: true })
     await saveSettings(db, { geminiApiKey: 'test-key' })
-    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: 'test-key' })
+    expect(await getSettings(db)).toEqual({
+      welcomeSeen: true,
+      geminiApiKey: 'test-key',
+      geminiModel: '',
+    })
+  })
+
+  it('saves geminiModel independently of the API key', async () => {
+    await saveSettings(db, { geminiApiKey: 'test-key' })
+    await saveSettings(db, { geminiModel: 'models/gemini-2.5-flash' })
+    await saveSettings(db, { geminiApiKey: '' })
+    const settings = await getSettings(db)
+    expect(settings.geminiModel).toBe('models/gemini-2.5-flash')
+    expect(settings.geminiApiKey).toBe('')
   })
 
   it('can clear geminiApiKey back to an empty string', async () => {
     await saveSettings(db, { geminiApiKey: 'test-key' })
-    await saveSettings(db, { geminiApiKey: '' })
+    await saveSettings(db, { geminiApiKey: '', geminiModel: '' })
     expect((await getSettings(db)).geminiApiKey).toBe('')
   })
 
   it('defaults welcomeSeen to false when nothing is stored', async () => {
-    expect(await getSettings(db)).toEqual({ welcomeSeen: false, geminiApiKey: '' })
+    expect(await getSettings(db)).toEqual({ welcomeSeen: false, geminiApiKey: '', geminiModel: '' })
   })
 
   it('reads back a saved welcomeSeen value', async () => {
     await saveSettings(db, { welcomeSeen: true })
-    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '' })
+    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '', geminiModel: '' })
   })
 
   it('ignores unknown setting keys, including inherited names', async () => {
@@ -151,7 +164,7 @@ describe('settings', () => {
       toString: 'x',
       constructor: 'x',
     })
-    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '' })
+    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '', geminiModel: '' })
     // getSettings only reads known keys, so inspect the raw store to make
     // sure only the known key was written.
     expect(await rawKeys()).toEqual(['welcomeSeen'])
@@ -160,7 +173,7 @@ describe('settings', () => {
   it('leaves settings unchanged when saving an empty object', async () => {
     await saveSettings(db, { welcomeSeen: true })
     await saveSettings(db, {})
-    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '' })
+    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '', geminiModel: '' })
   })
 })
 
@@ -172,6 +185,6 @@ describe('persistence', () => {
 
     db = await openDatabase({ factory })
     expect(await getAllEntries(db)).toEqual([entry()])
-    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '' })
+    expect(await getSettings(db)).toEqual({ welcomeSeen: true, geminiApiKey: '', geminiModel: '' })
   })
 })

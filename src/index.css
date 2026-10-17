@@ -103,7 +103,8 @@ body {
 }
 
 .field input,
-.field textarea {
+.field textarea,
+.field select {
   width: 100%;
   padding: 8px;
   font: inherit;

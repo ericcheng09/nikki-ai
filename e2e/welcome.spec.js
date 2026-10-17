@@ -1,5 +1,4 @@
-import { test, expect } from '@playwright/test'
-import { HOME_URL, WELCOME_URL, readStore, startApp } from './helpers.js'
+import { test, expect, HOME_URL, WELCOME_URL, readStore, startApp } from './helpers.js'
 
 // E2E for T6c: the first-use welcome page (spec 3.5, 4.3, 8.1-7).
 // Each test runs in a fresh browser context, i.e. a real first visit.
@@ -106,15 +105,15 @@ test.describe('welcome page', () => {
   })
 
   test('the welcome page stays dismissed after closing and reopening the browser', async ({
-    browser,
+    newContext,
   }) => {
-    const first = await browser.newContext()
+    const first = await newContext()
     const page = await first.newPage()
     await startApp(page)
     const state = await first.storageState({ indexedDB: true })
     await first.close()
 
-    const second = await browser.newContext({ storageState: state })
+    const second = await newContext({ storageState: state })
     const page2 = await second.newPage()
     await expectHomeWithoutRedirect(page2)
     expect(await readStore(page2, 'settings')).toEqual({ welcomeSeen: true })

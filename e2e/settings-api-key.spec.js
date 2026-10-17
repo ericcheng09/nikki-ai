@@ -1,9 +1,10 @@
-import { test, expect } from '@playwright/test'
-import { readStore, startApp } from './helpers.js'
+import { test, expect, GEMINI_MODELS_URL, installGeminiMock, readStore, startApp } from './helpers.js'
 
 // E2E for Phase 2 T2: Gemini API key on the settings page
 // (spec 3.6, 5.4, 8.2-1; decisions.md 設定頁).
-// Only fake keys are used; nothing here talks to Gemini.
+// Only fake keys are used. Saving a key queries the model list, which is
+// always answered by the Gemini mock; any other external request is
+// blocked by the guard in helpers.js and fails the test.
 
 const FAKE_KEY = 'test-key-123'
 const OTHER_KEY = 'test-key-456'
@@ -16,8 +17,10 @@ const showButton = (page) => page.getByRole('button', { name: '顯示' })
 const hideButton = (page) => page.getByRole('button', { name: '隱藏' })
 const statusSet = (page) => page.getByText('目前已設定 API key', { exact: true })
 const statusUnset = (page) => page.getByText('尚未設定 API key', { exact: true })
-const notice = (page) => page.getByRole('status')
-const errorAlert = (page) => page.getByRole('alert')
+// The model section has its own status/alert lines, so scope to this section.
+const keySection = (page) => page.getByRole('region', { name: 'Gemini API key' })
+const notice = (page) => keySection(page).getByRole('status')
+const errorAlert = (page) => keySection(page).getByRole('alert')
 
 async function openSettings(page) {
   await page.goto('./settings')
@@ -46,6 +49,12 @@ function collectDialogs(page) {
   })
   return dialogs
 }
+
+let gemini
+
+test.beforeEach(async ({ page }) => {
+  gemini = await installGeminiMock(page)
+})
 
 test.describe('settings: Gemini API key', () => {
   test('initial state: not set, hidden input, no 刪除, help with three steps', async ({ page }) => {
@@ -86,10 +95,11 @@ test.describe('settings: Gemini API key', () => {
   })
 
   test('the key is saved after going through the menu and survives a new browser', async ({
-    browser,
+    newContext,
   }) => {
-    const first = await browser.newContext()
+    const first = await newContext()
     const page = await first.newPage()
+    await installGeminiMock(page)
     await startApp(page)
     await page.getByRole('button', { name: '選單' }).click()
     await page.getByRole('link', { name: '設定', exact: true }).click()
@@ -98,8 +108,9 @@ test.describe('settings: Gemini API key', () => {
     const state = await first.storageState({ indexedDB: true })
     await first.close()
 
-    const second = await browser.newContext({ storageState: state })
+    const second = await newContext({ storageState: state })
     const page2 = await second.newPage()
+    await installGeminiMock(page2)
     await openSettings(page2)
     await expect(statusSet(page2)).toBeVisible()
     await expect(keyInput(page2)).toHaveValue(FAKE_KEY)
@@ -209,17 +220,24 @@ test.describe('settings: Gemini API key', () => {
     expect(await storedKey(page)).toBe(OTHER_KEY)
   })
 
-  test('the key never reaches the console or the network', async ({ page }) => {
+  test('the key only goes to Gemini, in the x-goog-api-key header', async ({ page }) => {
     const consoleText = []
     page.on('console', (msg) => consoleText.push(msg.text()))
     page.on('pageerror', (error) => consoleText.push(error.message))
-    const external = []
     const leaked = []
-    page.on('request', (request) => {
+    const geminiKeyHeaders = []
+    page.on('request', async (request) => {
       const url = new URL(request.url())
-      if (url.hostname !== 'localhost') external.push(request.url())
-      const payload = [request.url(), request.postData() ?? '', JSON.stringify(request.headers())]
-      if (payload.some((part) => part.includes(FAKE_KEY))) leaked.push(request.url())
+      const headers = await request.allHeaders().catch(() => request.headers())
+      const toGemini = url.hostname === 'generativelanguage.googleapis.com'
+      if (toGemini && request.method() === 'GET') geminiKeyHeaders.push(headers['x-goog-api-key'])
+      // Allowed: the x-goog-api-key header of Gemini requests. Nothing else.
+      const otherHeaders = Object.entries(headers)
+        .filter(([name]) => !(toGemini && name === 'x-goog-api-key'))
+        .map(([name, value]) => `${name}: ${value}`)
+        .join('\n')
+      const parts = [request.url(), request.postData() ?? '', otherHeaders]
+      if (parts.some((part) => part.includes(FAKE_KEY))) leaked.push(`${request.method()} ${request.url()}`)
     })
 
     await openSettings(page)
@@ -237,8 +255,18 @@ test.describe('settings: Gemini API key', () => {
     await page.getByRole('link', { name: '回主畫面' }).click()
     await page.waitForLoadState('networkidle')
 
-    expect(consoleText.filter((text) => text.includes(FAKE_KEY))).toEqual([])
-    expect(external).toEqual([])
+    // Model list queried after the save and after the reload, with the key
+    // only in the header (never in the URL).
+    expect(gemini.modelRequests.length).toBeGreaterThanOrEqual(2)
+    for (const { url, headers } of gemini.modelRequests) {
+      expect(url.startsWith(`${GEMINI_MODELS_URL}?`)).toBe(true)
+      expect(url).not.toContain(FAKE_KEY)
+      expect(headers['x-goog-api-key']).toBe(FAKE_KEY)
+    }
+    expect(geminiKeyHeaders.every((value) => value === FAKE_KEY)).toBe(true)
     expect(leaked).toEqual([])
+    expect(consoleText.filter((text) => text.includes(FAKE_KEY))).toEqual([])
+    // The page text never shows the key outside the input either.
+    expect(await page.locator('body').innerText()).not.toContain(FAKE_KEY)
   })
 })

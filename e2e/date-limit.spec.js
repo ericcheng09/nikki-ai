@@ -1,5 +1,4 @@
-import { test, expect } from '@playwright/test'
-import { HOME_URL, readStore, startApp } from './helpers.js'
+import { test, expect, HOME_URL, readStore, startApp } from './helpers.js'
 
 // E2E for T9: the diary date cannot be later than today (decisions.md,
 // "新增與編輯"). Dates are computed in the browser at runtime; checks that

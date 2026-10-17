@@ -1,0 +1,341 @@
+import {
+  test,
+  expect,
+  GEMINI_MODELS_URL,
+  MOCK_MODELS,
+  fulfillJson,
+  installGeminiMock,
+  readStore,
+} from './helpers.js'
+
+// E2E for Phase 2 T2b: Gemini model selection on the settings page
+// (spec 3.6, 5.1, 8.2-12; decisions.md 「Gemini 模型」).
+// The models endpoint is always mocked; other external requests are blocked
+// by the guard in helpers.js and fail the test.
+
+const FAKE_KEY = 'test-key-123'
+const OTHER_KEY = 'test-key-456'
+
+const ERRORS = {
+  invalidKey: 'API key 無效，請確認後重新儲存。',
+  network: '無法連線到 Gemini，請檢查網路後再試一次。',
+  other: '無法取得模型清單，請稍後再試。',
+}
+const MISSING_MODEL = '目前選擇的模型已無法使用，請重新選擇。'
+
+const keySection = (page) => page.getByRole('region', { name: 'Gemini API key' })
+const modelSection = (page) => page.getByRole('region', { name: 'Gemini 模型' })
+const modelSelect = (page) => modelSection(page).getByLabel('模型', { exact: true })
+const modelNotice = (page) => modelSection(page).getByRole('status')
+const modelAlert = (page) => modelSection(page).getByRole('alert')
+const retryButton = (page) => modelSection(page).getByRole('button', { name: '重新查詢' })
+
+const model = (name, displayName, methods = ['generateContent']) => ({
+  name,
+  ...(displayName === undefined ? {} : { displayName }),
+  supportedGenerationMethods: methods,
+})
+const listOf = (models) => (route) => fulfillJson(route, { models })
+
+async function openSettings(page) {
+  await page.goto('./settings')
+  await expect(page.getByRole('heading', { level: 2, name: '設定' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 3, name: 'Gemini API key' })).toBeVisible()
+}
+
+async function saveKey(page, key = FAKE_KEY) {
+  await keySection(page).getByLabel('API key', { exact: true }).fill(key)
+  await keySection(page).getByRole('button', { name: '儲存' }).click()
+  await expect(keySection(page).getByRole('status')).toHaveText('已儲存')
+}
+
+async function storedModel(page) {
+  return (await readStore(page, 'settings')).geminiModel
+}
+
+// Option labels of the select, excluding the disabled placeholder.
+async function optionLabels(page) {
+  return modelSelect(page).locator('option:not([disabled])').allTextContents()
+}
+
+let gemini
+
+test.beforeEach(async ({ page }) => {
+  gemini = await installGeminiMock(page)
+})
+
+test.describe('settings: Gemini model', () => {
+  test('no model section and no request without a saved key', async ({ page }) => {
+    await openSettings(page)
+    await expect(keySection(page).getByText('尚未設定 API key', { exact: true })).toBeVisible()
+    await page.waitForLoadState('networkidle')
+    await expect(modelSection(page)).toHaveCount(0)
+    expect(gemini.modelRequests).toEqual([])
+  })
+
+  test('saving a key queries the models and auto-selects the first Flash model', async ({
+    page,
+  }) => {
+    // Hold the first response so the loading state can be observed.
+    let release
+    const held = new Promise((resolve) => {
+      release = resolve
+    })
+    gemini.respond = async (route) => {
+      await held
+      return fulfillJson(route, { models: MOCK_MODELS })
+    }
+
+    await openSettings(page)
+    await saveKey(page, `  ${FAKE_KEY} `)
+    await expect(modelSection(page)).toBeVisible()
+    await expect(modelSection(page).getByText('正在取得模型清單…')).toBeVisible()
+    release()
+    await expect(modelSection(page).getByText('正在取得模型清單…')).toHaveCount(0)
+
+    // Only Gemini models supporting generateContent, by displayName, in API order.
+    expect(await optionLabels(page)).toEqual([
+      'Gemini 2.5 Pro',
+      'Gemini 2.5 Flash',
+      'Gemini 2.0 Flash-Lite',
+    ])
+    await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-flash')
+    await expect.poll(() => storedModel(page)).toBe('models/gemini-2.5-flash')
+    await expect(modelAlert(page)).toHaveCount(0)
+
+    // One request: pageSize=1000, key (trimmed) only in the header.
+    expect(gemini.modelRequests).toHaveLength(1)
+    const [{ url, headers }] = gemini.modelRequests
+    const parsed = new URL(url)
+    expect(`${parsed.origin}${parsed.pathname}`).toBe(GEMINI_MODELS_URL)
+    expect(parsed.searchParams.get('pageSize')).toBe('1000')
+    expect(url).not.toContain(FAKE_KEY)
+    expect(headers['x-goog-api-key']).toBe(FAKE_KEY)
+  })
+
+  test('Flash match is case-insensitive; a missing displayName falls back to the name', async ({
+    page,
+  }) => {
+    gemini.respond = listOf([
+      model('models/gemini-pro-x', 'Gemini Pro X'),
+      model('models/gemini-X-FLASH-preview'),
+      model('models/gemini-flash-later', 'Later Flash'),
+    ])
+    await openSettings(page)
+    await saveKey(page)
+    await expect(modelSelect(page)).toHaveValue('models/gemini-X-FLASH-preview')
+    expect(await optionLabels(page)).toEqual([
+      'Gemini Pro X',
+      'models/gemini-X-FLASH-preview',
+      'Later Flash',
+    ])
+    await expect.poll(() => storedModel(page)).toBe('models/gemini-X-FLASH-preview')
+  })
+
+  test('without a Flash model nothing is selected and 請選擇模型 is shown', async ({ page }) => {
+    gemini.respond = listOf([
+      model('models/gemini-2.5-pro', 'Gemini 2.5 Pro'),
+      model('models/gemini-ultra', 'Gemini Ultra'),
+      // Not a gemini model / not generateContent: filtered out, never picked.
+      model('models/gemma-flash', 'Gemma Flash'),
+      model('models/gemini-flash-embed', 'Embed Flash', ['embedContent']),
+    ])
+    await openSettings(page)
+    await saveKey(page)
+    expect(await optionLabels(page)).toEqual(['Gemini 2.5 Pro', 'Gemini Ultra'])
+    await expect(modelSelect(page)).toHaveValue('')
+    await expect(modelSelect(page).locator('option:checked')).toHaveText('請選擇模型')
+    // 請選擇模型 appears only as the placeholder option, not as a separate line.
+    await expect(modelSection(page).locator('p', { hasText: '請選擇模型' })).toHaveCount(0)
+    expect((await storedModel(page)) ?? '').toBe('')
+
+    // Picking one saves it.
+    await modelSelect(page).selectOption('models/gemini-ultra')
+    await expect(modelNotice(page)).toHaveText('已儲存')
+    await expect.poll(() => storedModel(page)).toBe('models/gemini-ultra')
+  })
+
+  test('changing the model saves immediately and persists after reload', async ({ page }) => {
+    await openSettings(page)
+    await saveKey(page)
+    await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-flash')
+    await expect(modelNotice(page)).toHaveText('')
+
+    await modelSelect(page).selectOption({ label: 'Gemini 2.5 Pro' })
+    await expect(modelNotice(page)).toHaveText('已儲存')
+    await expect.poll(() => storedModel(page)).toBe('models/gemini-2.5-pro')
+
+    // Opening the page with a saved key queries again; the choice is kept
+    // (not replaced by the Flash auto-pick).
+    await page.reload()
+    await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-pro')
+    expect(gemini.modelRequests).toHaveLength(2)
+    await expect(modelNotice(page)).toHaveText('')
+    expect(await storedModel(page)).toBe('models/gemini-2.5-pro')
+  })
+
+  test('a saved model missing from the list asks the user to choose again', async ({ page }) => {
+    await openSettings(page)
+    await saveKey(page)
+    await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-flash')
+
+    // The previously chosen model is gone from the next list.
+    gemini.respond = listOf([
+      model('models/gemini-3-pro', 'Gemini 3 Pro'),
+      model('models/gemini-3-flash', 'Gemini 3 Flash'),
+    ])
+    await page.reload()
+    await expect(modelAlert(page)).toHaveText(MISSING_MODEL)
+    await expect(modelSelect(page)).toHaveValue('')
+    // Not auto-replaced: the stored value stays until the user picks.
+    expect(await storedModel(page)).toBe('models/gemini-2.5-flash')
+
+    await modelSelect(page).selectOption('models/gemini-3-pro')
+    await expect(modelNotice(page)).toHaveText('已儲存')
+    await expect(modelAlert(page)).toHaveCount(0)
+    await expect.poll(() => storedModel(page)).toBe('models/gemini-3-pro')
+  })
+
+  test('follows nextPageToken across pages', async ({ page }) => {
+    gemini.respond = (route) => {
+      const token = new URL(route.request().url()).searchParams.get('pageToken')
+      if (!token) {
+        return fulfillJson(route, {
+          models: [model('models/gemini-2.5-pro', 'Gemini 2.5 Pro'), model('models/embedding-1', 'E')],
+          nextPageToken: 'page-2',
+        })
+      }
+      if (token === 'page-2') {
+        return fulfillJson(route, {
+          models: [model('models/gemini-2.5-flash', 'Gemini 2.5 Flash')],
+          nextPageToken: 'page-3',
+        })
+      }
+      return fulfillJson(route, { models: [model('models/gemini-3-pro', 'Gemini 3 Pro')] })
+    }
+    await openSettings(page)
+    await saveKey(page)
+    await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-flash')
+    expect(await optionLabels(page)).toEqual(['Gemini 2.5 Pro', 'Gemini 2.5 Flash', 'Gemini 3 Pro'])
+
+    const tokens = gemini.modelRequests.map(({ url }) => new URL(url).searchParams.get('pageToken'))
+    expect(tokens).toEqual([null, 'page-2', 'page-3'])
+    for (const { url, headers } of gemini.modelRequests) {
+      expect(new URL(url).searchParams.get('pageSize')).toBe('1000')
+      expect(headers['x-goog-api-key']).toBe(FAKE_KEY)
+    }
+  })
+
+  test('an empty filtered list shows 找不到可用的模型。', async ({ page }) => {
+    gemini.respond = listOf([
+      model('models/embedding-001', 'Embedding', ['embedContent']),
+      model('models/gemma-3', 'Gemma 3'),
+    ])
+    await openSettings(page)
+    await saveKey(page)
+    await expect(modelSection(page).getByText('找不到可用的模型。')).toBeVisible()
+    expect(await optionLabels(page)).toEqual([])
+    expect((await storedModel(page)) ?? '').toBe('')
+  })
+
+  const failures = [
+    {
+      title: '400 API_KEY_INVALID',
+      message: ERRORS.invalidKey,
+      respond: (route) =>
+        fulfillJson(
+          route,
+          {
+            error: {
+              code: 400,
+              message: 'API key not valid. Please pass a valid API key.',
+              status: 'INVALID_ARGUMENT',
+              details: [{ reason: 'API_KEY_INVALID' }],
+            },
+          },
+          400,
+        ),
+    },
+    { title: '401', message: ERRORS.invalidKey, respond: (route) => fulfillJson(route, { error: {} }, 401) },
+    { title: '403', message: ERRORS.invalidKey, respond: (route) => fulfillJson(route, { error: {} }, 403) },
+    { title: 'network failure', message: ERRORS.network, respond: (route) => route.abort('internetdisconnected') },
+    { title: '500', message: ERRORS.other, respond: (route) => fulfillJson(route, { error: {} }, 500) },
+    { title: '429', message: ERRORS.other, respond: (route) => fulfillJson(route, { error: {} }, 429) },
+    {
+      title: '400 without API_KEY_INVALID',
+      message: ERRORS.other,
+      respond: (route) => fulfillJson(route, { error: { code: 400, status: 'INVALID_ARGUMENT' } }, 400),
+    },
+  ]
+
+  for (const failure of failures) {
+    test(`query failure (${failure.title}) keeps the saved model; 重新查詢 recovers`, async ({
+      page,
+    }) => {
+      await openSettings(page)
+      await saveKey(page)
+      await modelSelect(page).selectOption('models/gemini-2.5-pro')
+      await expect(modelNotice(page)).toHaveText('已儲存')
+
+      gemini.respond = failure.respond
+      await page.reload()
+      await expect(modelAlert(page)).toHaveText(failure.message)
+      await expect(retryButton(page)).toBeVisible()
+      await expect(modelSelect(page)).toHaveCount(0)
+      expect(await storedModel(page)).toBe('models/gemini-2.5-pro')
+      // The key itself is untouched by a failed query.
+      await expect(keySection(page).getByText('目前已設定 API key', { exact: true })).toBeVisible()
+      expect((await readStore(page, 'settings')).geminiApiKey).toBe(FAKE_KEY)
+
+      const before = gemini.modelRequests.length
+      gemini.respond = listOf(MOCK_MODELS)
+      await retryButton(page).click()
+      await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-pro')
+      await expect(modelAlert(page)).toHaveCount(0)
+      await expect(retryButton(page)).toHaveCount(0)
+      expect(gemini.modelRequests.length).toBe(before + 1)
+      expect(await storedModel(page)).toBe('models/gemini-2.5-pro')
+    })
+  }
+
+  test('saving the key again re-queries the model list', async ({ page }) => {
+    await openSettings(page)
+    await saveKey(page)
+    await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-flash')
+    expect(gemini.modelRequests).toHaveLength(1)
+
+    gemini.respond = listOf([model('models/gemini-3-flash', 'Gemini 3 Flash')])
+    await saveKey(page, OTHER_KEY)
+    // The saved model is not in the new list: user is asked to choose.
+    await expect(modelAlert(page)).toHaveText(MISSING_MODEL)
+    expect(gemini.modelRequests).toHaveLength(2)
+    expect(gemini.modelRequests[1].headers['x-goog-api-key']).toBe(OTHER_KEY)
+
+    // Saving the same key once more still queries.
+    await saveKey(page, OTHER_KEY)
+    await expect(modelAlert(page)).toHaveText(MISSING_MODEL)
+    expect(gemini.modelRequests).toHaveLength(3)
+  })
+
+  test('deleting the key hides the section but keeps geminiModel stored', async ({ page }) => {
+    await openSettings(page)
+    await saveKey(page)
+    await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-flash')
+
+    await keySection(page).getByRole('button', { name: '刪除' }).click()
+    await expect(keySection(page).getByRole('status')).toHaveText('已刪除')
+    await expect(modelSection(page)).toHaveCount(0)
+    expect(await storedModel(page)).toBe('models/gemini-2.5-flash')
+
+    await page.reload()
+    await expect(keySection(page).getByText('尚未設定 API key', { exact: true })).toBeVisible()
+    await page.waitForLoadState('networkidle')
+    await expect(modelSection(page)).toHaveCount(0)
+    expect(gemini.modelRequests).toHaveLength(1)
+    expect(await storedModel(page)).toBe('models/gemini-2.5-flash')
+
+    // A new key brings the section back with the stored model selected.
+    await saveKey(page, OTHER_KEY)
+    await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-flash')
+  })
+})

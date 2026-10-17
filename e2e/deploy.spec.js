@@ -1,5 +1,4 @@
-import { test, expect } from '@playwright/test'
-import { HOME_URL, WELCOME_URL, startApp } from './helpers.js'
+import { test, expect, HOME_URL, WELCOME_URL, startApp } from './helpers.js'
 
 // E2E for T7: behaviour of the production build as served by GitHub Pages
 // (mocked by scripts/pages-server.js): unknown paths return status 404 with
