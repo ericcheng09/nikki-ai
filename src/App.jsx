@@ -1,6 +1,7 @@
 import { Routes, Route, Link } from 'react-router-dom'
 import DiaryList from './components/DiaryList.jsx'
 import DiaryEditor from './components/DiaryEditor.jsx'
+import EntryPage from './components/EntryPage.jsx'
 
 // Router is provided by the caller (main.jsx / tests) so App can be
 // rendered with a MemoryRouter in unit tests.
@@ -16,6 +17,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<DiaryList />} />
           <Route path="/entry/new" element={<DiaryEditor />} />
+          <Route path="/entry/:id" element={<EntryPage />} />
         </Routes>
       </main>
     </div>

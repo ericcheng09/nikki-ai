@@ -1,11 +1,13 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import App from './App.jsx'
-import { loadEntries } from './storage/connection.js'
+import { loadEntries, loadEntry } from './storage/connection.js'
 
 vi.mock('./storage/connection.js', () => ({
   loadEntries: vi.fn(),
+  loadEntry: vi.fn(),
   saveEntry: vi.fn(),
+  deleteEntry: vi.fn(),
 }))
 
 function renderAt(path) {
@@ -41,6 +43,13 @@ describe('App', () => {
     await screen.findByText(/還沒有日記/)
     fireEvent.click(screen.getByRole('link', { name: '新增日記' }))
     expect(screen.getByRole('button', { name: '儲存' })).toBeInTheDocument()
+  })
+
+  it('renders the entry page on /entry/:id', async () => {
+    vi.mocked(loadEntry).mockResolvedValue(undefined)
+    renderAt('/entry/some-id')
+    expect(await screen.findByText('找不到這篇日記')).toBeInTheDocument()
+    expect(loadEntry).toHaveBeenCalledWith('some-id')
   })
 
   it('links the title back to the home route', () => {

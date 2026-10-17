@@ -66,11 +66,18 @@ body {
 }
 
 .entry-item {
+  display: block;
+  color: inherit;
+  text-decoration: none;
   padding: 12px;
   margin-bottom: 8px;
   background: #fff;
   border: 1px solid #e3e3e3;
   border-radius: 6px;
+}
+
+.entry-item:hover {
+  border-color: #2f6fde;
 }
 
 .entry-item time {
@@ -116,4 +123,12 @@ body {
 
 .error {
   color: #c62828;
+}
+
+.success {
+  color: #2e7d32;
+}
+
+.button-danger {
+  background: #c62828;
 }

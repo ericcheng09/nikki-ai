@@ -15,7 +15,8 @@ async function browserLocalDate(page, offsetDays = 0) {
   }, offsetDays)
 }
 
-const entryItems = (page) => page.locator('li.entry-item')
+// Each list item is an <li> wrapping a link to the entry page.
+const entryItems = (page) => page.locator('ul.entries > li')
 
 async function openHome(page) {
   await page.goto('./')
@@ -28,12 +29,18 @@ async function expectEmptyList(page) {
 }
 
 // Creates an entry through the UI; `date` is optional (keeps the default).
+// After saving, the app opens the new entry's page (replacing the new-entry
+// form in history), so going back returns to the list.
 async function createEntry(page, content, date) {
   await page.getByRole('link', { name: '新增日記' }).click()
   await expect(page).toHaveURL(/\/nikki-ai\/entry\/new$/)
   if (date) await page.getByLabel('日期').fill(date)
   await page.getByLabel('內容').fill(content)
   await page.getByRole('button', { name: '儲存' }).click()
+  await expect(page).toHaveURL(/\/nikki-ai\/entry\/(?!new$)[^/]+$/)
+  await expect(page.getByRole('heading', { level: 2, name: '編輯日記' })).toBeVisible()
+  await expect(page.getByLabel('內容')).toHaveValue(content)
+  await page.goBack()
   await expect(page).toHaveURL(/\/nikki-ai\/$/)
   await expect(page.getByRole('heading', { level: 2, name: '我的日記' })).toBeVisible()
 }

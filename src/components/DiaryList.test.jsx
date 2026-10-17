@@ -72,6 +72,31 @@ describe('DiaryList', () => {
     expect(text).toBe('a'.repeat(50) + ' ' + 'b'.repeat(29) + '…')
   })
 
+  it('does not cut an emoji in half when truncating', async () => {
+    // 79 ASCII chars + 2 emoji (surrogate pairs): the 80th character is the
+    // first emoji, which must stay whole.
+    const content = 'x'.repeat(79) + '😀😀'
+    vi.mocked(loadEntries).mockResolvedValue([
+      entry('emoji', '2026-10-17', '2026-10-17T01:00:00.000Z', content),
+    ])
+    renderList()
+
+    const item = await screen.findByRole('listitem')
+    expect(item.querySelector('.entry-preview').textContent).toBe(
+      'x'.repeat(79) + '😀…',
+    )
+  })
+
+  it('links each entry to its entry page', async () => {
+    vi.mocked(loadEntries).mockResolvedValue([
+      entry('abc', '2026-10-17', '2026-10-17T01:00:00.000Z'),
+    ])
+    renderList()
+
+    const item = await screen.findByRole('listitem')
+    expect(item.querySelector('a')).toHaveAttribute('href', '/entry/abc')
+  })
+
   it('shows an empty state when there are no active entries', async () => {
     vi.mocked(loadEntries).mockResolvedValue([
       { id: 'gone', updatedAt: 'x', deleted: true, deletedAt: 'x' },

@@ -5,12 +5,14 @@ import { loadEntries } from '../storage/connection.js'
 
 const PREVIEW_LENGTH = 80
 
-// Single-line preview; full text is shown on the entry page (T5).
+// Single-line preview; full text is shown on the entry page.
+// Array.from splits by code point, so a surrogate pair such as an emoji is
+// never cut in half (String#slice counts UTF-16 code units).
 function preview(content) {
-  const oneLine = content.replace(/\s+/g, ' ').trim()
-  return oneLine.length > PREVIEW_LENGTH
-    ? `${oneLine.slice(0, PREVIEW_LENGTH)}…`
-    : oneLine
+  const chars = Array.from(content.replace(/\s+/g, ' ').trim())
+  return chars.length > PREVIEW_LENGTH
+    ? `${chars.slice(0, PREVIEW_LENGTH).join('')}…`
+    : chars.join('')
 }
 
 export default function DiaryList() {
@@ -58,9 +60,11 @@ export default function DiaryList() {
       {status === 'ready' && entries.length > 0 && (
         <ul className="entries">
           {entries.map((entry) => (
-            <li key={entry.id} className="entry-item">
-              <time dateTime={entry.date}>{entry.date}</time>
-              <p className="entry-preview">{preview(entry.content)}</p>
+            <li key={entry.id}>
+              <Link className="entry-item" to={`/entry/${entry.id}`}>
+                <time dateTime={entry.date}>{entry.date}</time>
+                <p className="entry-preview">{preview(entry.content)}</p>
+              </Link>
             </li>
           ))}
         </ul>

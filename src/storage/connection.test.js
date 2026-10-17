@@ -1,5 +1,12 @@
 import 'fake-indexeddb/auto'
-import { createConnection, getDb, loadEntries, saveEntry } from './connection.js'
+import {
+  createConnection,
+  deleteEntry,
+  getDb,
+  loadEntries,
+  loadEntry,
+  saveEntry,
+} from './connection.js'
 
 describe('createConnection', () => {
   it('opens the database only once and reuses the same Promise', async () => {
@@ -46,5 +53,43 @@ describe('default connection', () => {
     }
     await saveEntry(entry)
     expect(await loadEntries()).toContainEqual(entry)
+  })
+})
+
+describe('loadEntry', () => {
+  it('returns the stored record for an id', async () => {
+    const entry = { id: 'load-1', content: 'Hi', deleted: false }
+    await saveEntry(entry)
+    expect(await loadEntry('load-1')).toEqual(entry)
+  })
+
+  it('returns undefined for an unknown id', async () => {
+    expect(await loadEntry('does-not-exist')).toBeUndefined()
+  })
+})
+
+describe('deleteEntry', () => {
+  it('replaces the entry with a tombstone that has no content or analysis', async () => {
+    const entry = {
+      id: 'del-1',
+      date: '2026-10-17',
+      content: 'secret',
+      language: 'auto',
+      createdAt: '2026-10-17T01:00:00.000Z',
+      updatedAt: '2026-10-17T01:00:00.000Z',
+      deleted: false,
+      deletedAt: null,
+      isSample: false,
+      analysis: { correctedText: 'x' },
+    }
+    await saveEntry(entry)
+    await deleteEntry(entry)
+
+    const stored = await loadEntry('del-1')
+    expect(Object.keys(stored).sort()).toEqual(
+      ['deleted', 'deletedAt', 'id', 'updatedAt'],
+    )
+    expect(stored.deleted).toBe(true)
+    expect(stored.deletedAt).toBe(stored.updatedAt)
   })
 })
