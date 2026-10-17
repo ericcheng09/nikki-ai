@@ -12,5 +12,8 @@ export default defineConfig({
     globals: true,
     // Only pick up unit tests under src/; Playwright specs in e2e/ must not run in Vitest.
     include: ['src/**/*.test.{js,jsx}'],
+    // Pin a non-UTC timezone so local-date tests catch accidental UTC usage
+    // (e.g. toISOString()) even on CI machines that run in UTC.
+    env: { TZ: 'Asia/Taipei' },
   },
 })
