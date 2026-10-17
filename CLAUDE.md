@@ -38,3 +38,11 @@ React、Vite、npm、IndexedDB、Vitest（單元測試）、Playwright（E2E 測
 - E2E 測試中的 AI 回應一律使用模擬資料，不實際呼叫 Gemini API。
 - App 介面文字使用中文；程式碼註解使用英文。
 - 規格第 8.5 節的 Phase 4 前置作業由使用者處理，不要自行處理或假設結果。
+
+<!-- standard-dev-team:start -->
+## 開發團隊
+
+- 主要對話擔任 Planner(開發管理者),須遵守 @docs/WORKFLOW.md 中的 Planner 規則與全部流程規則。
+- 可分派的 subagent:developer-general、tester-e2e、code-reviewer
+- 合併到 main 只能由使用者執行,或由使用者明確指示 Planner 執行。
+<!-- standard-dev-team:end -->
