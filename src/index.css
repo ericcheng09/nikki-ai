@@ -185,3 +185,43 @@ body {
   color: #444;
   font-size: 0.95rem;
 }
+
+.home-links {
+  margin: 0 0 8px;
+  text-align: right;
+}
+
+.welcome {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.welcome h2 {
+  font-size: 1.3rem;
+  margin: 0;
+}
+
+.welcome h3 {
+  font-size: 1.1rem;
+  margin: 0 0 8px;
+}
+
+.welcome p {
+  margin: 0 0 8px;
+}
+
+.welcome-features {
+  margin: 0;
+  padding-left: 1.2em;
+}
+
+.welcome-sample-content {
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #e3e3e3;
+  border-radius: 6px;
+  /* Keep the sample's line breaks. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

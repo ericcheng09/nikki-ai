@@ -1,8 +1,10 @@
 import { test, expect } from '@playwright/test'
+import { startApp } from './helpers.js'
 
 // E2E for T4: create diary entries and show them in the list.
 // Every test gets a fresh browser context (Playwright default), so each one
-// starts with an empty IndexedDB. Dates are computed from the browser clock
+// starts with an empty IndexedDB; the first visit goes through the welcome
+// page, which startApp() passes through. Dates are computed from the browser clock
 // at runtime, never hard-coded, so the suite does not break across days.
 
 // Local YYYY-MM-DD in the browser, `offsetDays` from today.
@@ -51,7 +53,7 @@ async function listedPreviews(page) {
 
 test.describe('create diary entry', () => {
   test('each test starts with an empty, isolated database', async ({ page }) => {
-    await openHome(page)
+    await startApp(page)
     await expectEmptyList(page)
   })
 
@@ -63,7 +65,7 @@ test.describe('create diary entry', () => {
     page.on('console', (msg) => consoleMessages.push(msg.text()))
 
     const content = 'Today I went to the park. 今日は公園に行きました。'
-    await openHome(page)
+    await startApp(page)
     await expectEmptyList(page)
     await createEntry(page, content)
 
@@ -94,7 +96,7 @@ test.describe('create diary entry', () => {
     const content = 'Persisted across a browser restart.'
     const first = await browser.newContext()
     const page = await first.newPage()
-    await openHome(page)
+    await startApp(page)
     await createEntry(page, content)
     await expect(entryItems(page)).toHaveCount(1)
     const state = await first.storageState({ indexedDB: true })
@@ -109,7 +111,7 @@ test.describe('create diary entry', () => {
   })
 
   test('date picker defaults to today in the browser local timezone', async ({ page }) => {
-    await openHome(page)
+    await startApp(page)
     const before = await browserLocalDate(page)
     await page.getByRole('link', { name: '新增日記' }).click()
     const value = await page.getByLabel('日期').inputValue()
@@ -125,7 +127,7 @@ test.describe('create diary entry', () => {
       test.use({ timezoneId })
 
       test('default date follows the local calendar day', async ({ page }) => {
-        await openHome(page)
+        await startApp(page)
         const before = await browserLocalDate(page)
         await page.getByRole('link', { name: '新增日記' }).click()
         const value = await page.getByLabel('日期').inputValue()
@@ -136,7 +138,7 @@ test.describe('create diary entry', () => {
   }
 
   test('whitespace-only content is not saved and shows a message', async ({ page }) => {
-    await openHome(page)
+    await startApp(page)
     await page.getByRole('link', { name: '新增日記' }).click()
 
     for (const blank of ['', '   ', '\n\n', '　　', ' \t\n　 ']) {
@@ -154,7 +156,7 @@ test.describe('create diary entry', () => {
   })
 
   test('a cleared date is not saved and shows a message', async ({ page }) => {
-    await openHome(page)
+    await startApp(page)
     await page.getByRole('link', { name: '新增日記' }).click()
     await page.getByLabel('日期').fill('')
     await page.getByLabel('內容').fill('No date here')
@@ -169,7 +171,7 @@ test.describe('create diary entry', () => {
   })
 
   test('several entries on the same day are all kept, later one on top', async ({ page }) => {
-    await openHome(page)
+    await startApp(page)
     await createEntry(page, 'First entry of the day')
     await createEntry(page, 'Second entry of the day')
     await createEntry(page, 'Third entry of the day')
@@ -194,7 +196,7 @@ test.describe('create diary entry', () => {
   })
 
   test('newer diary dates are listed first, regardless of writing order', async ({ page }) => {
-    await openHome(page)
+    await startApp(page)
     const today = await browserLocalDate(page)
     const threeDaysAgo = await browserLocalDate(page, -3)
     const lastMonth = await browserLocalDate(page, -40)

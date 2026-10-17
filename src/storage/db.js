@@ -10,10 +10,14 @@ export const ENTRIES_STORE = 'entries'
 export const SETTINGS_STORE = 'settings'
 
 // Known settings and their defaults (spec 4.3). Each setting is stored as
-// its own record keyed by name, so new fields (welcomeSeen, geminiApiKey,
-// ...) are added here without a schema migration. Empty for now: only
-// keys listed here can be read or written.
-const DEFAULT_SETTINGS = {}
+// its own record keyed by name, so new fields (e.g. geminiApiKey in
+// Phase 2) are added here without a schema migration. Only keys listed
+// here can be read or written.
+const DEFAULT_SETTINGS = {
+  // Set once the user presses 開始使用 on the welcome page (spec 3.5).
+  // Local-only: never synced, so each device shows the page once.
+  welcomeSeen: false,
+}
 
 export function openDatabase({ factory = globalThis.indexedDB, name = DB_NAME } = {}) {
   return new Promise((resolve, reject) => {

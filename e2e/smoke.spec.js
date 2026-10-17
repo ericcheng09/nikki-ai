@@ -4,7 +4,8 @@ import { test, expect } from '@playwright/test'
 test('home page under /nikki-ai/ shows the Chinese title', async ({ page }) => {
   const response = await page.goto('./')
   expect(response?.ok()).toBe(true)
-  await expect(page).toHaveURL(/\/nikki-ai\/$/)
+  // A first visit is redirected to the welcome page (spec 3.5).
+  await expect(page).toHaveURL(/\/nikki-ai\/welcome$/)
   await expect(page).toHaveTitle('外語學習日記')
   await expect(page.getByRole('heading', { level: 1, name: '外語學習日記' })).toBeVisible()
 })

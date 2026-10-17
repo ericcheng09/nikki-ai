@@ -18,14 +18,27 @@ function Section({ id, title, children }) {
   )
 }
 
+// Defensive: only real arrays of objects are rendered, so a malformed
+// value can never crash the view (Phase 2 validates AI output separately).
+function asList(value) {
+  return Array.isArray(value)
+    ? value.filter((item) => item !== null && typeof item === 'object')
+    : []
+}
+
+function asStrings(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === 'string') : []
+}
+
 function EmptyNote({ children }) {
   return <p className="muted">{children}</p>
 }
 
-export default function AnalysisView({ analysis }) {
-  const grammarErrors = analysis.grammarErrors ?? []
-  const unclearSentences = analysis.unclearSentences ?? []
-  const naturalExpressions = analysis.naturalExpressions ?? []
+export default function AnalysisView({ analysis: input }) {
+  const analysis = input ?? {}
+  const grammarErrors = asList(analysis.grammarErrors)
+  const unclearSentences = asList(analysis.unclearSentences)
+  const naturalExpressions = asList(analysis.naturalExpressions)
 
   return (
     <div className="analysis-view">
@@ -81,7 +94,7 @@ export default function AnalysisView({ analysis }) {
                 <p className="analysis-change">
                   <span className="analysis-original">{item.original}</span>
                   {' → '}
-                  {(item.alternatives ?? []).map((alternative, altIndex) => (
+                  {asStrings(item.alternatives).map((alternative, altIndex) => (
                     <span key={altIndex}>
                       {altIndex > 0 && '／'}
                       <span className="analysis-fixed">{alternative}</span>

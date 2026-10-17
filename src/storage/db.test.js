@@ -110,8 +110,6 @@ describe('entries', () => {
   })
 })
 
-// No settings are defined yet (welcomeSeen arrives in T6c), so these tests
-// cover the empty defaults and the unknown-key guard.
 describe('settings', () => {
   const rawKeys = () =>
     new Promise((resolve, reject) => {
@@ -123,37 +121,45 @@ describe('settings', () => {
       request.onerror = () => reject(request.error)
     })
 
-  it('returns an empty object when no settings are defined', async () => {
-    expect(await getSettings(db)).toEqual({})
+  it('defaults welcomeSeen to false when nothing is stored', async () => {
+    expect(await getSettings(db)).toEqual({ welcomeSeen: false })
+  })
+
+  it('reads back a saved welcomeSeen value', async () => {
+    await saveSettings(db, { welcomeSeen: true })
+    expect(await getSettings(db)).toEqual({ welcomeSeen: true })
   })
 
   it('ignores unknown setting keys, including inherited names', async () => {
     // toString / constructor exist on Object.prototype and must not be
     // mistaken for known settings.
     await saveSettings(db, {
+      welcomeSeen: true,
       unknownFlag: true,
-      somethingElse: 'x',
       toString: 'x',
       constructor: 'x',
     })
-    expect(await getSettings(db)).toEqual({})
+    expect(await getSettings(db)).toEqual({ welcomeSeen: true })
     // getSettings only reads known keys, so inspect the raw store to make
-    // sure nothing was written.
-    expect(await rawKeys()).toEqual([])
+    // sure only the known key was written.
+    expect(await rawKeys()).toEqual(['welcomeSeen'])
   })
 
-  it('resolves when saving an empty object', async () => {
-    await expect(saveSettings(db, {})).resolves.toBeUndefined()
-    expect(await rawKeys()).toEqual([])
+  it('leaves settings unchanged when saving an empty object', async () => {
+    await saveSettings(db, { welcomeSeen: true })
+    await saveSettings(db, {})
+    expect(await getSettings(db)).toEqual({ welcomeSeen: true })
   })
 })
 
 describe('persistence', () => {
-  it('keeps entries after closing and reopening the database', async () => {
+  it('keeps entries and settings after closing and reopening the database', async () => {
     await putEntry(db, entry())
+    await saveSettings(db, { welcomeSeen: true })
     db.close()
 
     db = await openDatabase({ factory })
     expect(await getAllEntries(db)).toEqual([entry()])
+    expect(await getSettings(db)).toEqual({ welcomeSeen: true })
   })
 })

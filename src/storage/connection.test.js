@@ -6,6 +6,10 @@ import {
   loadEntries,
   loadEntry,
   saveEntry,
+  loadSettings,
+  updateSettings,
+  isWelcomeSeenThisSession,
+  markWelcomeSeen,
 } from './connection.js'
 
 describe('createConnection', () => {
@@ -90,5 +94,25 @@ describe('deleteEntry', () => {
     )
     expect(stored.deleted).toBe(true)
     expect(stored.deletedAt).toBe(stored.updatedAt)
+  })
+})
+
+describe('settings', () => {
+  it('reads defaults and saved values through the shared connection', async () => {
+    expect(await loadSettings()).toEqual({ welcomeSeen: false })
+    await updateSettings({ welcomeSeen: true })
+    expect(await loadSettings()).toEqual({ welcomeSeen: true })
+  })
+})
+
+describe('markWelcomeSeen', () => {
+  it('remembers the press for this session and saves welcomeSeen', async () => {
+    await updateSettings({ welcomeSeen: false })
+    expect(isWelcomeSeenThisSession()).toBe(false)
+
+    await markWelcomeSeen()
+
+    expect(isWelcomeSeenThisSession()).toBe(true)
+    expect(await loadSettings()).toEqual({ welcomeSeen: true })
   })
 })

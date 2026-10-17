@@ -62,6 +62,16 @@ describe('AnalysisView', () => {
     expect(section).toHaveTextContent('更簡潔')
   })
 
+  it('separates multiple alternatives with ／ (docs/decisions.md)', () => {
+    render(<AnalysisView analysis={analysis} />)
+    const [first, second] = within(region('更道地的說法')).getAllByRole('listitem')
+    expect(first.querySelector('.analysis-change').textContent).toBe(
+      '二つ食べましたから → 二つも食べたので／二つも食べちゃったので',
+    )
+    // A single alternative has no separator.
+    expect(second.querySelector('.analysis-change').textContent).toBe('早く起きる → 早起きする')
+  })
+
   it.each([
     ['不通順或易誤會的句子', { unclearSentences: [] }],
     ['更道地的說法', { naturalExpressions: [] }],
@@ -90,6 +100,36 @@ describe('AnalysisView', () => {
   it('does not show analyzedAt', () => {
     const { container } = render(<AnalysisView analysis={analysis} />)
     expect(container).not.toHaveTextContent('2026-01-01')
+  })
+
+  it('does not crash on an empty analysis object', () => {
+    render(<AnalysisView analysis={{}} />)
+    expect(within(region('文法錯誤')).getByText('無錯誤')).toBeInTheDocument()
+    expect(within(region('不通順或易誤會的句子')).getByText('無')).toBeInTheDocument()
+    expect(within(region('更道地的說法')).getByText('無')).toBeInTheDocument()
+    expect(region('修改後全文').querySelector('strong')).toBeNull()
+  })
+
+  it('skips malformed list values and items', () => {
+    render(
+      <AnalysisView
+        analysis={{
+          ...analysis,
+          grammarErrors: 'not a list',
+          unclearSentences: [null, 'text', 42],
+          naturalExpressions: [
+            { original: 'orig', alternatives: ['ok', null, { x: 1 }], explanation: 'e' },
+            undefined,
+          ],
+        }}
+      />,
+    )
+    expect(within(region('文法錯誤')).getByText('無錯誤')).toBeInTheDocument()
+    expect(within(region('不通順或易誤會的句子')).getByText('無')).toBeInTheDocument()
+    const items = within(region('更道地的說法')).getAllByRole('listitem')
+    expect(items).toHaveLength(1)
+    expect(items[0].querySelectorAll('.analysis-fixed')).toHaveLength(1)
+    expect(items[0]).toHaveTextContent('ok')
   })
 
   it('renders HTML in every field as plain text only', () => {
