@@ -10,6 +10,8 @@ import {
   removeEntry,
   getSettings,
   saveSettings,
+  seedSampleEntry,
+  dismissSampleEntry,
 } from './db.js'
 
 const entry = (overrides = {}) => ({
@@ -172,5 +174,81 @@ describe('persistence', () => {
     db = await openDatabase({ factory })
     expect(await getAllEntries(db)).toEqual([entry()])
     expect(await getSettings(db)).toEqual({ sampleDismissed: true })
+  })
+})
+
+describe('seedSampleEntry', () => {
+  const sample = entry({ id: 'sample-id', isSample: true, date: '2026-10-17' })
+
+  it('puts the sample on first run and reports it was added', async () => {
+    expect(await seedSampleEntry(db, sample)).toBe(true)
+    expect(await getAllEntries(db)).toEqual([sample])
+  })
+
+  it('does not add a second copy or overwrite the existing sample', async () => {
+    await seedSampleEntry(db, sample)
+    const later = { ...sample, date: '2026-12-31', updatedAt: '2026-12-31T00:00:00.000Z' }
+    expect(await seedSampleEntry(db, later)).toBe(false)
+    expect(await getAllEntries(db)).toEqual([sample])
+  })
+
+  it('adds the sample only once when run concurrently', async () => {
+    const results = await Promise.all([
+      seedSampleEntry(db, sample),
+      seedSampleEntry(db, { ...sample, date: '2026-12-31' }),
+    ])
+    expect(results.filter(Boolean)).toHaveLength(1)
+    const all = await getAllEntries(db)
+    expect(all).toHaveLength(1)
+    // The first transaction wins; the second must not overwrite it.
+    expect(all[0].date).toBe('2026-10-17')
+  })
+
+  it('does not add the sample once it has been dismissed', async () => {
+    await saveSettings(db, { sampleDismissed: true })
+    expect(await seedSampleEntry(db, sample)).toBe(false)
+    expect(await getAllEntries(db)).toEqual([])
+  })
+
+  it('leaves other entries untouched', async () => {
+    await putEntry(db, entry({ id: 'mine' }))
+    await seedSampleEntry(db, sample)
+    expect((await getAllEntries(db)).map((e) => e.id).sort()).toEqual(['mine', 'sample-id'])
+  })
+})
+
+describe('dismissSampleEntry', () => {
+  const sample = entry({ id: 'sample-id', isSample: true })
+
+  it('removes the sample record entirely and sets sampleDismissed', async () => {
+    await seedSampleEntry(db, sample)
+    await putEntry(db, entry({ id: 'mine' }))
+
+    await dismissSampleEntry(db, 'sample-id')
+
+    // No tombstone is left behind for the sample.
+    expect((await getAllEntries(db)).map((e) => e.id)).toEqual(['mine'])
+    expect(await getSettings(db)).toEqual({ sampleDismissed: true })
+  })
+
+  it('keeps the sample away on later seeding', async () => {
+    await seedSampleEntry(db, sample)
+    await dismissSampleEntry(db, 'sample-id')
+    expect(await seedSampleEntry(db, sample)).toBe(false)
+    expect(await getAllEntries(db)).toEqual([])
+  })
+
+  it('still records the dismissal when the sample record is already gone', async () => {
+    await dismissSampleEntry(db, 'sample-id')
+    expect(await getSettings(db)).toEqual({ sampleDismissed: true })
+  })
+
+  it('changes neither store when the transaction fails', async () => {
+    await seedSampleEntry(db, sample)
+    // An invalid key makes delete() throw, which must abort the whole
+    // transaction so sampleDismissed is not set on its own.
+    await expect(dismissSampleEntry(db, {})).rejects.toThrow()
+    expect(await getAllEntries(db)).toEqual([sample])
+    expect(await getSettings(db)).toEqual({ sampleDismissed: false })
   })
 })

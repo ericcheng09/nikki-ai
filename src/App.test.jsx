@@ -6,6 +6,7 @@ import { loadEntries, loadEntry } from './storage/connection.js'
 vi.mock('./storage/connection.js', () => ({
   loadEntries: vi.fn(),
   loadEntry: vi.fn(),
+  seedSample: vi.fn().mockResolvedValue(),
   saveEntry: vi.fn(),
   deleteEntry: vi.fn(),
 }))

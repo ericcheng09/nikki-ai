@@ -130,11 +130,11 @@ export default function DiaryEditor({ entry }) {
           {error}
         </p>
       )}
-      {notice && (
-        <p className="success" role="status">
-          {notice}
-        </p>
-      )}
+      {/* Always rendered so screen readers announce text changes in this
+          live region; only its content changes. */}
+      <p className="success" role="status">
+        {notice}
+      </p>
 
       <div className="actions">
         <button type="submit" className="button" disabled={busy}>

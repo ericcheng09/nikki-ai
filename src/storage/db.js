@@ -53,27 +53,40 @@ export function openDatabase({ factory = globalThis.indexedDB, name = DB_NAME } 
   })
 }
 
-// Runs `work(store)` in a transaction and resolves with the value of the
-// request it returns once the transaction has completed (i.e. the write is
-// committed), not merely when the request succeeds.
-function runInStore(db, storeName, mode, work) {
+// Runs `work(tx)` in a transaction over `storeNames` and resolves with the
+// value returned by `getResult()` (if `work` returns one) once the
+// transaction has completed, i.e. the writes are committed, not merely
+// when a request succeeds. Any failure aborts the whole transaction, so
+// multi-store writes are all-or-nothing.
+function runTransaction(db, storeNames, mode, work) {
   return new Promise((resolve, reject) => {
-    let request
     let tx
+    let getResult
     try {
-      tx = db.transaction(storeName, mode)
-      request = work(tx.objectStore(storeName))
+      tx = db.transaction(storeNames, mode)
+      getResult = work(tx)
     } catch (error) {
       // Synchronous failures, e.g. DataError for an entry without an id.
       tx?.abort()
       reject(error)
       return
     }
-    tx.oncomplete = () => resolve(request?.result)
+    tx.oncomplete = () => resolve(getResult?.())
     // A failed request fires onerror and then onabort on the transaction;
     // the second reject() is a no-op, which is intended.
-    tx.onerror = () => reject(tx.error ?? request?.error)
+    // The error event bubbles from the failed request, which holds the cause
+    // (tx.error is only set once the transaction aborts).
+    tx.onerror = (event) => reject(event.target.error ?? tx.error)
     tx.onabort = () => reject(tx.error ?? new Error('Transaction aborted'))
+  })
+}
+
+// Single-store shortcut: resolves with the result of the request that
+// `work(store)` returns.
+function runInStore(db, storeName, mode, work) {
+  return runTransaction(db, storeName, mode, (tx) => {
+    const request = work(tx.objectStore(storeName))
+    return () => request?.result
   })
 }
 
@@ -90,8 +103,10 @@ export async function putEntry(db, entry) {
 }
 
 // Hard delete: removes the whole record without leaving a tombstone.
-// ONLY for the sample entry (spec 3.5 / 4.1). Regular diary entries must be
-// soft-deleted via softDeleteEntry() + putEntry() so deletions can sync.
+// ONLY for the sample entry (spec 3.5 / 4.1); the app uses
+// dismissSampleEntry(), which also records sampleDismissed atomically.
+// Regular diary entries must be soft-deleted via softDeleteEntry() +
+// putEntry() so deletions can sync.
 export async function removeEntry(db, id) {
   await runInStore(db, ENTRIES_STORE, 'readwrite', (store) => store.delete(id))
 }
@@ -119,5 +134,39 @@ export async function saveSettings(db, partial) {
       // toString or constructor from Object.prototype.
       if (Object.hasOwn(DEFAULT_SETTINGS, key)) store.put(value, key)
     }
+  })
+}
+
+// Seeds the sample entry (spec 3.5) unless it was dismissed or already
+// exists. Both checks and the write happen in ONE readwrite transaction
+// over both stores; IndexedDB serialises overlapping readwrite
+// transactions, so concurrent calls (StrictMode, two tabs) can neither add
+// it twice nor overwrite an existing sample (e.g. its original date).
+// Resolves with true when the sample was added.
+export function seedSampleEntry(db, sample) {
+  return runTransaction(db, [ENTRIES_STORE, SETTINGS_STORE], 'readwrite', (tx) => {
+    let added = false
+    const dismissed = tx.objectStore(SETTINGS_STORE).get('sampleDismissed')
+    dismissed.onsuccess = () => {
+      if (dismissed.result === true) return
+      const entries = tx.objectStore(ENTRIES_STORE)
+      const existing = entries.get(sample.id)
+      existing.onsuccess = () => {
+        if (existing.result !== undefined) return
+        entries.put(sample)
+        added = true
+      }
+    }
+    return () => added
+  })
+}
+
+// Deletes the sample for good (spec 3.5 / 4.1): removes the whole record,
+// leaving no tombstone, and sets sampleDismissed in the same transaction so
+// the two can never get out of step.
+export async function dismissSampleEntry(db, id) {
+  await runTransaction(db, [ENTRIES_STORE, SETTINGS_STORE], 'readwrite', (tx) => {
+    tx.objectStore(ENTRIES_STORE).delete(id)
+    tx.objectStore(SETTINGS_STORE).put(true, 'sampleDismissed')
   })
 }

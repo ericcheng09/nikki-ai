@@ -1,7 +1,10 @@
 import { test, expect } from '@playwright/test'
+import { dismissSample } from './helpers.js'
 
 // E2E for T5: open, edit and (soft) delete diary entries.
-// Each test runs in a fresh browser context, so IndexedDB starts empty.
+// Each test runs in a fresh browser context, so IndexedDB starts empty
+// except for the seeded sample entry, which tests remove first via
+// startWithoutSample().
 // Dates are derived from the browser clock at runtime, never hard-coded.
 
 const CONFIRM_MESSAGE = '確定要刪除這篇日記嗎？刪除後無法復原。'
@@ -39,6 +42,12 @@ async function readStoredEntries(page) {
   )
 }
 
+// Start of a test about regular entries: open home and remove the sample.
+async function startWithoutSample(page) {
+  await openHome(page)
+  await dismissSample(page)
+}
+
 async function openHome(page) {
   await page.goto('./')
   await expect(page.getByRole('heading', { level: 2, name: '我的日記' })).toBeVisible()
@@ -61,7 +70,7 @@ async function listedPreviews(page) {
 
 test.describe('open, edit and delete a diary entry', () => {
   test('after creating, the entry page opens and Back returns to the list', async ({ page }) => {
-    await openHome(page)
+    await startWithoutSample(page)
     const id = await createEntry(page, 'Created entry')
     expect(page.url()).toContain(`/nikki-ai/entry/${id}`)
     await expect(page.getByLabel('內容')).toHaveValue('Created entry')
@@ -75,7 +84,7 @@ test.describe('open, edit and delete a diary entry', () => {
   })
 
   test('opening an entry from the list shows its date and full content', async ({ page }) => {
-    await openHome(page)
+    await startWithoutSample(page)
     const longText = 'Line one.\nLine two with more words. '.repeat(5).trim()
     const id = await createEntry(page, longText)
     const today = await browserLocalDate(page)
@@ -92,7 +101,7 @@ test.describe('open, edit and delete a diary entry', () => {
     const consoleMessages = []
     page.on('console', (msg) => consoleMessages.push(msg.text()))
 
-    await openHome(page)
+    await startWithoutSample(page)
     const today = await browserLocalDate(page)
     const yesterday = await browserLocalDate(page, -1)
     const lastWeek = await browserLocalDate(page, -7)
@@ -127,7 +136,8 @@ test.describe('open, edit and delete a diary entry', () => {
     await page.reload()
     await expect(page.getByLabel('內容')).toHaveValue('Entry B edited 編集しました')
     await expect(page.getByLabel('日期')).toHaveValue(today)
-    await expect(page.getByRole('status')).toHaveCount(0)
+    // The status region is always rendered; it must not say 已儲存.
+    await expect(page.getByRole('status')).toHaveText('')
 
     // List reflects new content and new date order; still two entries.
     await openHome(page)
@@ -139,14 +149,15 @@ test.describe('open, edit and delete a diary entry', () => {
   })
 
   test('editing to whitespace only is rejected and the original is kept', async ({ page }) => {
-    await openHome(page)
+    await startWithoutSample(page)
     const id = await createEntry(page, 'Original text')
 
     for (const blank of ['', '  \n ', '　\t　']) {
       await page.getByLabel('內容').fill(blank)
       await page.getByRole('button', { name: '儲存' }).click()
       await expect(page.getByRole('alert')).toHaveText('內容不能空白')
-      await expect(page.getByRole('status')).toHaveCount(0)
+      // The status region is always rendered; it must not say 已儲存.
+      await expect(page.getByRole('status')).toHaveText('')
     }
 
     const stored = (await readStoredEntries(page)).find((e) => e.id === id)
@@ -159,7 +170,7 @@ test.describe('open, edit and delete a diary entry', () => {
   })
 
   test('cancelling the delete confirmation keeps the entry', async ({ page }) => {
-    await openHome(page)
+    await startWithoutSample(page)
     const id = await createEntry(page, 'Keep me')
 
     const messages = []
@@ -184,7 +195,7 @@ test.describe('open, edit and delete a diary entry', () => {
   test('confirming delete soft-deletes, returns home and hides the entry for good', async ({
     page,
   }) => {
-    await openHome(page)
+    await startWithoutSample(page)
     const id = await createEntry(page, 'Delete me please')
     await page.goBack()
     await createEntry(page, 'Other entry stays')
@@ -200,7 +211,7 @@ test.describe('open, edit and delete a diary entry', () => {
       dialog.accept()
     })
     await page.getByRole('button', { name: '刪除' }).click()
-    expect(messages).toEqual([`confirm:${CONFIRM_MESSAGE}`])
+    await expect.poll(() => messages).toEqual([`confirm:${CONFIRM_MESSAGE}`])
 
     await expect(page).toHaveURL(HOME_URL)
     await expect(entryItems(page)).toHaveCount(1)
@@ -239,7 +250,7 @@ test.describe('open, edit and delete a diary entry', () => {
   })
 
   test('the new-entry form has no delete button', async ({ page }) => {
-    await openHome(page)
+    await startWithoutSample(page)
     await page.getByRole('link', { name: '新增日記' }).click()
     await expect(page.getByRole('heading', { level: 2, name: '新增日記' })).toBeVisible()
     await expect(page.getByRole('button', { name: '刪除' })).toHaveCount(0)

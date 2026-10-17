@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom'
 import DiaryEditor from './DiaryEditor.jsx'
 import { deleteEntry, saveEntry } from '../storage/connection.js'
@@ -160,6 +160,8 @@ describe('DiaryEditor (new entry)', () => {
 describe('DiaryEditor (edit entry)', () => {
   it('shows the stored date and content in an edit form', () => {
     renderEditor(existing)
+    // The status live region exists from the start, empty.
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
     expect(screen.getByRole('heading', { name: '編輯日記' })).toBeInTheDocument()
     expect(dateInput()).toHaveValue('2026-10-15')
     expect(contentInput()).toHaveValue('Original text')
@@ -174,7 +176,9 @@ describe('DiaryEditor (edit entry)', () => {
     fireEvent.change(contentInput(), { target: { value: 'Edited text' } })
     fireEvent.click(saveButton())
 
-    expect(await screen.findByRole('status')).toHaveTextContent('已儲存')
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent('已儲存'),
+    )
     const saved = vi.mocked(saveEntry).mock.calls[0][0]
     expect(saved).toMatchObject({
       id: 'entry-1',
@@ -193,10 +197,10 @@ describe('DiaryEditor (edit entry)', () => {
 
     fireEvent.change(contentInput(), { target: { value: 'First edit' } })
     fireEvent.click(saveButton())
-    await screen.findByRole('status')
+    await screen.findByText('已儲存')
     fireEvent.change(dateInput(), { target: { value: '2026-10-20' } })
     fireEvent.click(saveButton())
-    await screen.findByRole('status')
+    await screen.findByText('已儲存')
 
     const second = vi.mocked(saveEntry).mock.calls[1][0]
     expect(second).toMatchObject({ content: 'First edit', date: '2026-10-20' })
@@ -206,9 +210,10 @@ describe('DiaryEditor (edit entry)', () => {
     vi.mocked(saveEntry).mockResolvedValue()
     renderEditor(existing)
     fireEvent.click(saveButton())
-    await screen.findByRole('status')
+    await screen.findByText('已儲存')
     fireEvent.change(contentInput(), { target: { value: 'More' } })
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    // The live region stays in the DOM; only its text is cleared.
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
   })
 
   it('does not save when the content is changed to blank', () => {
@@ -218,7 +223,7 @@ describe('DiaryEditor (edit entry)', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('內容不能空白')
     expect(saveEntry).not.toHaveBeenCalled()
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
   })
 
   it('soft-deletes after confirmation and returns home', async () => {
@@ -241,7 +246,7 @@ describe('DiaryEditor (edit entry)', () => {
 
     fireEvent.change(contentInput(), { target: { value: 'Edited' } })
     fireEvent.click(saveButton())
-    await screen.findByRole('status')
+    await screen.findByText('已儲存')
     fireEvent.click(deleteButton())
 
     await screen.findByText('主畫面')
