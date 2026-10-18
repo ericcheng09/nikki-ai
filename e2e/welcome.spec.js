@@ -1,5 +1,13 @@
-import { test, expect } from '@playwright/test'
-import { HOME_URL, WELCOME_URL, readStore, startApp } from './helpers.js'
+import {
+  test,
+  expect,
+  HOME_URL,
+  WELCOME_URL,
+  readStore,
+  startApp,
+  backButton,
+  guideIcon,
+} from './helpers.js'
 
 // E2E for T6c: the first-use welcome page (spec 3.5, 4.3, 8.1-7).
 // Each test runs in a fresh browser context, i.e. a real first visit.
@@ -19,11 +27,26 @@ const ANALYSIS_SECTIONS = [
 const entryItems = (page) => page.locator('ul.entries > li')
 const startButton = (page) => page.getByRole('button', { name: '開始使用' })
 
+// 使用說明 is the question-mark icon in the top bar (decisions.md 畫面).
+async function openGuideFromBar(page) {
+  await guideIcon(page).click()
+}
+
 async function expectWelcomeContent(page) {
   await expect(page.getByRole('heading', { level: 2, name: '歡迎使用外語學習日記' })).toBeVisible()
   await expect(page.getByRole('heading', { level: 3, name: '這個 App 可以做什麼' })).toBeVisible()
-  await expect(page.getByText(/^寫日記：/)).toBeVisible()
-  await expect(page.getByText(/AI 批改功能即將推出/)).toBeVisible()
+  // Four feature items, in this order (user-approved wording).
+  const features = page.getByRole('region', { name: '這個 App 可以做什麼' }).getByRole('listitem')
+  await expect(features).toHaveText([
+    /^寫日記：.*只有在你按「AI 批改」時，那篇日記的內容才會送到 Google Gemini。$/,
+    /^選擇語言：/,
+    /^AI 批改：/,
+    /^使用前準備：.*key 只會存在這個瀏覽器，只用來呼叫 Gemini。$/,
+  ])
+  await expect(page.getByText('以下用一篇日文日記，示範 AI 批改的結果。', { exact: true })).toBeVisible()
+  await expect(page.getByText(/即將推出/)).toHaveCount(0)
+  // The sample is read-only: no review button here.
+  await expect(page.getByRole('button', { name: 'AI 批改' })).toHaveCount(0)
   await expect(page.getByText(SAMPLE_CONTENT, { exact: true })).toBeVisible()
   for (const name of ANALYSIS_SECTIONS) {
     await expect(page.getByRole('region', { name })).toBeVisible()
@@ -100,15 +123,15 @@ test.describe('welcome page', () => {
   })
 
   test('the welcome page stays dismissed after closing and reopening the browser', async ({
-    browser,
+    newContext,
   }) => {
-    const first = await browser.newContext()
+    const first = await newContext()
     const page = await first.newPage()
     await startApp(page)
     const state = await first.storageState({ indexedDB: true })
     await first.close()
 
-    const second = await browser.newContext({ storageState: state })
+    const second = await newContext({ storageState: state })
     const page2 = await second.newPage()
     await expectHomeWithoutRedirect(page2)
     expect(await readStore(page2, 'settings')).toEqual({ welcomeSeen: true })
@@ -148,7 +171,7 @@ test.describe('welcome page', () => {
     await expect(startButton(page)).toHaveCount(0)
     // Navigating home again within this page load still does not redirect.
     await page.getByRole('link', { name: '新增日記' }).click()
-    await page.getByRole('link', { name: '取消' }).click()
+    await backButton(page).click()
     await expect(page).toHaveURL(HOME_URL)
     await expect(page.getByRole('heading', { level: 2, name: '我的日記' })).toBeVisible()
 
@@ -158,10 +181,10 @@ test.describe('welcome page', () => {
     await expect(page).toHaveURL(WELCOME_URL)
   })
 
-  test('the 使用說明 link reopens the welcome page without resetting it', async ({ page }) => {
+  test('the top bar 使用說明 icon reopens the welcome page without resetting it', async ({ page }) => {
     await startApp(page)
 
-    await page.getByRole('link', { name: '使用說明' }).click()
+    await openGuideFromBar(page)
     await expect(page).toHaveURL(WELCOME_URL)
     await expectWelcomeContent(page)
 
@@ -171,8 +194,8 @@ test.describe('welcome page', () => {
 
     // Still no automatic redirect afterwards.
     await expectHomeWithoutRedirect(page)
-    // Viewing it via the link and leaving another way changes nothing either.
-    await page.getByRole('link', { name: '使用說明' }).click()
+    // Viewing it via the top bar and leaving another way changes nothing either.
+    await openGuideFromBar(page)
     await expect(page).toHaveURL(WELCOME_URL)
     await page.getByRole('link', { name: '外語學習日記' }).click()
     await expect(page).toHaveURL(HOME_URL)
@@ -217,7 +240,7 @@ test.describe('welcome page', () => {
     await expectWelcomeContent(page)
     await startButton(page).click()
     await expect(page).toHaveURL(HOME_URL)
-    await page.getByRole('link', { name: '使用說明' }).click()
+    await openGuideFromBar(page)
     await expect(page).toHaveURL(WELCOME_URL)
     expect(messages).toEqual([])
   })

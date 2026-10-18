@@ -1,5 +1,11 @@
-import { test, expect } from '@playwright/test'
-import { HOME_URL, readStore, startApp } from './helpers.js'
+import {
+  test,
+  expect,
+  HOME_URL,
+  readStore,
+  startApp,
+  backButton,
+} from './helpers.js'
 
 // E2E for T9: the diary date cannot be later than today (decisions.md,
 // "新增與編輯"). Dates are computed in the browser at runtime; checks that
@@ -90,7 +96,7 @@ test.describe('date cannot be later than today', () => {
 
     // Nothing was stored.
     expect(await readStore(page, 'entries')).toEqual([])
-    await page.getByRole('link', { name: '取消' }).click()
+    await backButton(page).click()
     await expect(page).toHaveURL(HOME_URL)
     await expect(entryItems(page)).toHaveCount(0)
   })

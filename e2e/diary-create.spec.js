@@ -1,5 +1,9 @@
-import { test, expect } from '@playwright/test'
-import { startApp } from './helpers.js'
+import {
+  test,
+  expect,
+  startApp,
+  backButton,
+} from './helpers.js'
 
 // E2E for T4: create diary entries and show them in the list.
 // Every test gets a fresh browser context (Playwright default), so each one
@@ -91,10 +95,10 @@ test.describe('create diary entry', () => {
   })
 
   test('entry survives closing the browser context and restoring its storage', async ({
-    browser,
+    newContext,
   }) => {
     const content = 'Persisted across a browser restart.'
-    const first = await browser.newContext()
+    const first = await newContext()
     const page = await first.newPage()
     await startApp(page)
     await createEntry(page, content)
@@ -102,7 +106,7 @@ test.describe('create diary entry', () => {
     const state = await first.storageState({ indexedDB: true })
     await first.close()
 
-    const second = await browser.newContext({ storageState: state })
+    const second = await newContext({ storageState: state })
     const page2 = await second.newPage()
     await openHome(page2)
     await expect(entryItems(page2)).toHaveCount(1)
@@ -148,7 +152,7 @@ test.describe('create diary entry', () => {
       await expect(page).toHaveURL(/\/nikki-ai\/entry\/new$/)
     }
 
-    await page.getByRole('link', { name: '取消' }).click()
+    await backButton(page).click()
     await expectEmptyList(page)
     // Nothing was written, even after a reload.
     await page.reload()
@@ -166,7 +170,7 @@ test.describe('create diary entry', () => {
     // Typed content is kept.
     await expect(page.getByLabel('內容')).toHaveValue('No date here')
 
-    await page.getByRole('link', { name: '取消' }).click()
+    await backButton(page).click()
     await expectEmptyList(page)
   })
 

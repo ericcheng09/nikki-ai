@@ -11,6 +11,8 @@ vi.mock('./storage/connection.js', () => ({
   isWelcomeSeenThisSession: vi.fn(() => false),
   markWelcomeSeen: vi.fn(),
   saveEntry: vi.fn(),
+  saveEntryAddingLanguage: vi.fn(),
+  deleteCustomLanguage: vi.fn(),
   deleteEntry: vi.fn(),
 }))
 
@@ -79,6 +81,57 @@ describe('App', () => {
     renderAt('/entry/some-id')
     expect(await screen.findByText('找不到這篇日記')).toBeInTheDocument()
     expect(loadSettings).not.toHaveBeenCalled()
+  })
+
+  it('renders the settings page on /settings with the top bar', async () => {
+    renderAt('/settings')
+    await screen.findByRole('heading', { level: 3, name: 'Gemini API key' })
+    expect(screen.getByRole('heading', { level: 2, name: '設定' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '返回' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '設定' })).not.toBeInTheDocument()
+  })
+
+  it.each([['/'], ['/entry/new'], ['/welcome']])('shows the top bar on %s', (path) => {
+    renderAt(path)
+    expect(screen.getByRole('banner')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '外語學習日記' })).toHaveAttribute('href', '/')
+  })
+
+  it('has a back button on the not-found entry page, next to 回主畫面', async () => {
+    vi.mocked(loadEntry).mockResolvedValue(undefined)
+    renderAt('/entry/missing')
+    expect(await screen.findByText('找不到這篇日記')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '回主畫面' })).toHaveAttribute('href', '/')
+    fireEvent.click(screen.getByRole('button', { name: '返回' }))
+    expect(await screen.findByText(/還沒有日記/)).toBeInTheDocument()
+  })
+
+  it('does not redirect a first-time user who opens /settings directly', async () => {
+    vi.mocked(loadSettings).mockResolvedValue({ welcomeSeen: false, geminiApiKey: '' })
+    renderAt('/settings')
+    // Settings are read for the API key section, but welcomeSeen is ignored.
+    expect(await screen.findByText('尚未設定 API key')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: '設定' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: '歡迎使用外語學習日記' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('opens settings from the top bar and goes back home', async () => {
+    renderAt('/')
+    await screen.findByText(/還沒有日記/)
+    fireEvent.click(screen.getByRole('link', { name: '設定' }))
+    expect(screen.getByRole('heading', { level: 2, name: '設定' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '返回' }))
+    expect(await screen.findByText(/還沒有日記/)).toBeInTheDocument()
+  })
+
+  it('opens the welcome page from the top bar', async () => {
+    renderAt('/')
+    await screen.findByText(/還沒有日記/)
+    fireEvent.click(screen.getByRole('link', { name: '使用說明' }))
+    expect(screen.getByRole('heading', { name: '歡迎使用外語學習日記' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '開始使用' })).toBeInTheDocument()
   })
 
   it('links the title back to the home route', () => {

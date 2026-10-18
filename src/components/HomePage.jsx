@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
 import DiaryList from './DiaryList.jsx'
 import {
   isWelcomeSeenThisSession,
@@ -36,12 +36,5 @@ export default function HomePage() {
   // replace: Back from the welcome page should not bounce to "/" again.
   if (status === 'welcome') return <Navigate to="/welcome" replace />
 
-  return (
-    <>
-      <p className="home-links">
-        <Link to="/welcome">使用說明</Link>
-      </p>
-      <DiaryList />
-    </>
-  )
+  return <DiaryList />
 }

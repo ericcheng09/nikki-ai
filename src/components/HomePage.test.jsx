@@ -42,11 +42,12 @@ describe('HomePage', () => {
     expect(screen.queryByText('我的日記')).not.toBeInTheDocument()
   })
 
-  it('shows the diary list and the 使用說明 link when welcomeSeen is true', async () => {
+  it('shows the diary list when welcomeSeen is true', async () => {
     vi.mocked(loadSettings).mockResolvedValue({ welcomeSeen: true })
     renderHome()
     expect(await screen.findByText(/還沒有日記/)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '使用說明' })).toHaveAttribute('href', '/welcome')
+    // 設定 / 使用說明 live in the app-wide top bar, not on this page.
+    expect(screen.queryByRole('button', { name: '選單' })).not.toBeInTheDocument()
     expect(screen.queryByText('說明頁')).not.toBeInTheDocument()
   })
 

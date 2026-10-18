@@ -6,6 +6,11 @@ import {
   loadEntries,
   loadEntry,
   saveEntry,
+  saveEntryAddingLanguage,
+  saveEntryAnalysis,
+  saveEntryEdit,
+  deleteCustomLanguage,
+  saveCustomLanguage,
   loadSettings,
   updateSettings,
   isWelcomeSeenThisSession,
@@ -60,6 +65,106 @@ describe('default connection', () => {
   })
 })
 
+describe('saveEntryAddingLanguage', () => {
+  it('saves the entry and adds the language through the shared connection', async () => {
+    const entry = {
+      id: 'conn-lang-1',
+      date: '2026-10-17',
+      content: '안녕',
+      language: '韓文',
+      createdAt: '2026-10-17T01:00:00.000Z',
+      updatedAt: '2026-10-17T01:00:00.000Z',
+      deleted: false,
+      deletedAt: null,
+    }
+    await saveEntryAddingLanguage(entry, '韓文')
+    expect(await loadEntry('conn-lang-1')).toEqual(entry)
+    const { customLanguages } = await loadSettings()
+    expect(customLanguages.map((item) => item.name)).toContain('韓文')
+    await updateSettings({ customLanguages: [] })
+  })
+
+  it('rejects and saves nothing for an entry without an id', async () => {
+    await expect(saveEntryAddingLanguage({ content: 'x' }, '泰文')).rejects.toThrow()
+    expect((await loadSettings()).customLanguages).toEqual([])
+  })
+})
+
+describe('saveEntryEdit and saveEntryAnalysis', () => {
+  const base = {
+    id: 'conn-ai-1',
+    date: '2026-10-17',
+    content: 'Hello',
+    language: 'auto',
+    createdAt: '2026-10-17T01:00:00.000Z',
+    updatedAt: '2026-10-17T01:00:00.000Z',
+    deleted: false,
+    deletedAt: null,
+    analysis: null,
+  }
+  const analysis = { correctedText: 'Hello.' }
+
+  it('keeps an analysis stored meanwhile when an older copy is edited', async () => {
+    await saveEntry(base)
+    const withAnalysis = await saveEntryAnalysis(base.id, analysis)
+    expect(withAnalysis).toMatchObject({ content: 'Hello', analysis })
+    const written = await saveEntryEdit(base, { content: 'Edited' })
+    expect(written).toMatchObject({ content: 'Edited', analysis })
+    expect(await loadEntry(base.id)).toEqual(written)
+  })
+
+  it('adds a custom language with the edit', async () => {
+    await saveEntry(base)
+    await saveEntryEdit(base, { language: '泰文' }, '泰文')
+    expect((await loadSettings()).customLanguages.map((item) => item.name)).toContain('泰文')
+    await updateSettings({ customLanguages: [] })
+  })
+
+  it('refuses to edit an unknown id', async () => {
+    await expect(saveEntryEdit({ ...base, id: 'conn-ai-gone' }, { content: 'x' })).resolves.toBeNull()
+    expect(await loadEntry('conn-ai-gone')).toBeUndefined()
+  })
+
+  it('discards an analysis for an unknown id', async () => {
+    await expect(saveEntryAnalysis('conn-ai-missing', analysis)).resolves.toBeNull()
+    expect(await loadEntry('conn-ai-missing')).toBeUndefined()
+  })
+})
+
+describe('deleteCustomLanguage', () => {
+  it('soft-deletes through the shared connection', async () => {
+    await updateSettings({
+      customLanguages: [
+        { name: '韓文', updatedAt: '2026-10-01T00:00:00.000Z', deleted: false, deletedAt: null },
+      ],
+    })
+    await expect(deleteCustomLanguage('韓文')).resolves.toEqual([])
+    const [stored] = (await loadSettings()).customLanguages
+    expect(stored).toMatchObject({ name: '韓文', deleted: true })
+    await updateSettings({ customLanguages: [] })
+  })
+
+  it('resolves with the unchanged list for an unknown name', async () => {
+    await expect(deleteCustomLanguage('不存在')).resolves.toEqual([])
+  })
+})
+
+describe('saveCustomLanguage', () => {
+  it('adds the language through the shared connection', async () => {
+    await updateSettings({ customLanguages: [] })
+    await expect(saveCustomLanguage('韓文')).resolves.toEqual(['韓文'])
+    const [stored] = (await loadSettings()).customLanguages
+    expect(stored).toMatchObject({ name: '韓文', deleted: false })
+    await updateSettings({ customLanguages: [] })
+  })
+
+  it('leaves the list unchanged for a built-in name', async () => {
+    await updateSettings({ customLanguages: [] })
+    await expect(saveCustomLanguage('日文')).resolves.toEqual([])
+    expect((await loadSettings()).customLanguages).toEqual([])
+  })
+})
+
 describe('loadEntry', () => {
   it('returns the stored record for an id', async () => {
     const entry = { id: 'load-1', content: 'Hi', deleted: false }
@@ -99,9 +204,9 @@ describe('deleteEntry', () => {
 
 describe('settings', () => {
   it('reads defaults and saved values through the shared connection', async () => {
-    expect(await loadSettings()).toEqual({ welcomeSeen: false })
+    expect(await loadSettings()).toEqual({ welcomeSeen: false, geminiApiKey: '', geminiModel: '', customLanguages: [] })
     await updateSettings({ welcomeSeen: true })
-    expect(await loadSettings()).toEqual({ welcomeSeen: true })
+    expect(await loadSettings()).toEqual({ welcomeSeen: true, geminiApiKey: '', geminiModel: '', customLanguages: [] })
   })
 })
 
@@ -113,6 +218,6 @@ describe('markWelcomeSeen', () => {
     await markWelcomeSeen()
 
     expect(isWelcomeSeenThisSession()).toBe(true)
-    expect(await loadSettings()).toEqual({ welcomeSeen: true })
+    expect(await loadSettings()).toEqual({ welcomeSeen: true, geminiApiKey: '', geminiModel: '', customLanguages: [] })
   })
 })

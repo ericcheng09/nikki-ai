@@ -84,6 +84,18 @@ export function getLocalDateString(date = new Date()) {
   return `${y}-${m}-${d}`
 }
 
+// 'YYYY-MM-DD HH:mm' in the user's local timezone for an ISO timestamp
+// (e.g. analyzedAt). Anything that is not a parsable string yields '' so
+// callers can simply hide the line.
+export function formatLocalDateTime(value) {
+  if (typeof value !== 'string' || value === '') return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const h = String(date.getHours()).padStart(2, '0')
+  const min = String(date.getMinutes()).padStart(2, '0')
+  return `${getLocalDateString(date)} ${h}:${min}`
+}
+
 // True when a 'YYYY-MM-DD' date is later than today in the user's local
 // timezone. Fixed-width ISO dates compare correctly as plain strings.
 // `now` is evaluated per call so a page left open past midnight still uses

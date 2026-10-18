@@ -1,5 +1,12 @@
-import { test, expect } from '@playwright/test'
-import { HOME_URL, WELCOME_URL, startApp } from './helpers.js'
+import {
+  test,
+  expect,
+  HOME_URL,
+  WELCOME_URL,
+  startApp,
+  backButton,
+  settingsIcon,
+} from './helpers.js'
 
 // E2E for T7: behaviour of the production build as served by GitHub Pages
 // (mocked by scripts/pages-server.js): unknown paths return status 404 with
@@ -68,11 +75,30 @@ test.describe('production build on GitHub Pages', () => {
     await expect(page.getByLabel('內容')).toHaveValue('Reload me on Pages\nsecond line')
 
     // Back to the list through the app, then reload the home page: 200.
-    await page.getByRole('link', { name: '返回列表' }).click()
+    await backButton(page).click()
     await expect(page).toHaveURL(HOME_URL)
     const home = await page.reload()
     expect(home.status()).toBe(200)
     await expect(page.locator('ul.entries > li')).toHaveCount(1)
+  })
+
+  test('opening and reloading ./settings: status 404, settings page renders', async ({ page }) => {
+    // Directly, as a first-time user: no redirect to the welcome page.
+    const direct = await page.goto('./settings')
+    expect(direct.status()).toBe(404)
+    await expect(page).toHaveURL(/\/nikki-ai\/settings$/)
+    await expect(page.getByRole('heading', { level: 2, name: '設定' })).toBeVisible()
+
+    // Reached through the home menu, then reloaded.
+    await startApp(page)
+    await settingsIcon(page).click()
+    await expect(page).toHaveURL(/\/nikki-ai\/settings$/)
+    const reloaded = await page.reload()
+    expect(reloaded.status()).toBe(404)
+    await expect(page).toHaveURL(/\/nikki-ai\/settings$/)
+    await expect(page.getByRole('heading', { level: 2, name: '設定' })).toBeVisible()
+    await backButton(page).click()
+    await expect(page).toHaveURL(HOME_URL)
   })
 
   test('/nikki-ai redirects to /nikki-ai/', async ({ page, request }) => {
