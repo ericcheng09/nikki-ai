@@ -13,8 +13,9 @@ const PAGE_SIZE = 1000
 const MAX_PAGES = 20
 
 // Error with a machine-readable `code` the UI maps to Chinese text:
-// 'invalidKey' | 'network' | 'other'. The message is fixed English text and
-// never includes request data.
+// 'invalidKey' | 'network' | 'format' | 'other' ('format' comes from
+// analysis.js). The message is fixed English text and never includes
+// request or response data.
 export class GeminiError extends Error {
   constructor(code) {
     super(`Gemini request failed: ${code}`)
