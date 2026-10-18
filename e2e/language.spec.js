@@ -92,8 +92,11 @@ test.describe('diary language', () => {
     const dateBox = await dateInput(page).boundingBox()
     const selectBox = await languageSelect(page).boundingBox()
     const contentBox = await contentInput(page).boundingBox()
-    expect(dateBox.y).toBeLessThan(selectBox.y)
-    expect(selectBox.y).toBeLessThan(contentBox.y)
+    // 日期 and 語言 share one row (日期 left), both above 內容.
+    expect(Math.abs(dateBox.y - selectBox.y)).toBeLessThanOrEqual(2)
+    expect(dateBox.x + dateBox.width).toBeLessThanOrEqual(selectBox.x)
+    expect(dateBox.y + dateBox.height).toBeLessThan(contentBox.y)
+    expect(selectBox.y + selectBox.height).toBeLessThan(contentBox.y)
 
     expect(await selectedLabel(page)).toBe('自動判斷')
     await expectOptions(page, [...BASE_OPTIONS, '其他'])

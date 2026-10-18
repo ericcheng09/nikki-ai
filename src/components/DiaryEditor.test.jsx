@@ -482,6 +482,27 @@ describe('DiaryEditor (language)', () => {
     expect(screen.queryByLabelText('語言名稱')).not.toBeInTheDocument()
   })
 
+  it('groups 日期, 語言 and 語言名稱 in one row container, 語言名稱 on its own row', () => {
+    renderEditor()
+    const row = dateInput().closest('.date-language')
+    expect(row).not.toBeNull()
+    expect(row).toContainElement(languageSelect())
+    expect(row).not.toContainElement(contentInput())
+    fireEvent.change(languageSelect(), { target: { value: '' } })
+    expect(otherInput().closest('.field')).toHaveClass('field-full')
+    expect(row).toContainElement(otherInput())
+    expect(row).toContainElement(screen.getByRole('button', { name: '加入' }))
+    // DOM (and tab) order: 日期 → 語言 → 語言名稱 → 加入 → 內容.
+    const order = Array.from(
+      document.querySelectorAll('form input, form select, form textarea, form button'),
+    )
+    const indexOf = (el) => order.indexOf(el)
+    expect(indexOf(languageSelect())).toBeGreaterThan(indexOf(dateInput()))
+    expect(indexOf(otherInput())).toBeGreaterThan(indexOf(languageSelect()))
+    expect(indexOf(screen.getByRole('button', { name: '加入' }))).toBeGreaterThan(indexOf(otherInput()))
+    expect(indexOf(contentInput())).toBeGreaterThan(indexOf(screen.getByRole('button', { name: '加入' })))
+  })
+
   it('gives the select the accessible name 語言 exactly', () => {
     renderEditor()
     // Exact match: the name must not include the option texts.

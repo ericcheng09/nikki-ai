@@ -66,7 +66,7 @@ export default function LanguageField({
       </div>
 
       {value === OTHER_OPTION_VALUE && (
-        <div className="field">
+        <div className="field field-full">
           <label htmlFor={otherInputId}>語言名稱</label>
           <div className="input-row">
             <input

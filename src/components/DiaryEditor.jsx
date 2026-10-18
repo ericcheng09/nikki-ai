@@ -259,35 +259,39 @@ export default function DiaryEditor({ entry }) {
       <form className="diary-editor" onSubmit={handleSubmit} noValidate>
         <h2>{isEdit ? '編輯日記' : '新增日記'}</h2>
 
-        <label className="field">
-          <span>日期</span>
-          <input
-            type="date"
-            // Latest selectable date is today (local); recomputed on render.
-            max={getLocalDateString()}
-            value={date}
-            onChange={(event) => {
-              setDate(event.target.value)
+        {/* 日期 and 語言 share one row (two columns via CSS, stacking only
+            when too narrow); 語言名稱 + 加入 take the next full row. */}
+        <div className="date-language">
+          <label className="field">
+            <span>日期</span>
+            <input
+              type="date"
+              // Latest selectable date is today (local); recomputed on render.
+              max={getLocalDateString()}
+              value={date}
+              onChange={(event) => {
+                setDate(event.target.value)
+                clearMessages()
+              }}
+            />
+          </label>
+
+          <LanguageField
+            options={options}
+            value={language}
+            otherValue={otherLanguage}
+            onChange={(value) => {
+              setLanguage(value)
               clearMessages()
             }}
+            onOtherChange={(value) => {
+              setOtherLanguage(value)
+              clearMessages()
+            }}
+            onAdd={handleAddLanguage}
+            adding={busy}
           />
-        </label>
-
-        <LanguageField
-          options={options}
-          value={language}
-          otherValue={otherLanguage}
-          onChange={(value) => {
-            setLanguage(value)
-            clearMessages()
-          }}
-          onOtherChange={(value) => {
-            setOtherLanguage(value)
-            clearMessages()
-          }}
-          onAdd={handleAddLanguage}
-          adding={busy}
-        />
+        </div>
 
         <label className="field">
           <span>內容</span>

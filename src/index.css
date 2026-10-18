@@ -179,6 +179,35 @@ html {
   gap: 4px;
 }
 
+/* Editor: 日期 and 語言 side by side, each half the width (decisions.md
+   畫面). Flex wrap rather than a grid: both grow equally from a 162px
+   basis, so they wrap onto separate rows only when 2 x 162px plus the
+   gap no longer fit, i.e. below a 340px form width (a 375px phone has a
+   343px form and keeps one row); with auto-fit grid tracks, wide forms
+   would get extra, narrower columns instead. 語言名稱 + 加入 always take
+   a full row of their own. */
+.date-language {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.date-language > .field {
+  flex: 1 1 162px;
+  min-width: 0;
+}
+
+.date-language > .field-full {
+  flex-basis: 100%;
+}
+
+/* The fields in a row stretch to the same height; letting the controls
+   fill them keeps the select as tall as the native date input. */
+.date-language > .field > input,
+.date-language > .field > select {
+  flex: 1 1 auto;
+}
+
 .field input,
 .field textarea,
 .field select {

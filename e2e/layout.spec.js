@@ -184,3 +184,140 @@ test.describe('entry page layout', () => {
     }
   })
 })
+
+// --- Phase 2 F4: 日期 and 語言 on one row (decisions.md 畫面) ---------------
+// Both fields grow from a 162px basis, so they only stack when the form is
+// narrower than 340px. 語言名稱 + 加入 always take a full row of their own.
+
+const dateField = (page) => form(page).locator('label.field', { has: page.locator('input[type="date"]') })
+const languageField = (page) => form(page).locator('.field', { has: page.getByLabel('語言', { exact: true }) })
+const nameField = (page) => form(page).locator('.field-full')
+const nameInput = (page) => page.getByLabel('語言名稱', { exact: true })
+const addLanguageButton = (page) => page.getByRole('button', { name: '加入', exact: true })
+const contentField = (page) => form(page).locator('label.field', { has: page.locator('textarea') })
+const rowContainer = (page) => form(page).locator('.date-language')
+
+async function openNewEntry(page) {
+  await page.goto('./entry/new')
+  await expect(page.getByRole('heading', { level: 2, name: '新增日記' })).toBeVisible()
+}
+
+async function fieldBoxes(page) {
+  return {
+    date: await dateField(page).boundingBox(),
+    language: await languageField(page).boundingBox(),
+    content: await contentField(page).boundingBox(),
+    row: await rowContainer(page).boundingBox(),
+  }
+}
+
+async function expectDateLanguageOneRow(page) {
+  const b = await fieldBoxes(page)
+  // Same top, 日期 left of 語言, roughly equal widths, filling the row.
+  expect(Math.abs(b.date.y - b.language.y)).toBeLessThanOrEqual(1)
+  expect(b.date.x + b.date.width).toBeLessThanOrEqual(b.language.x)
+  expect(Math.abs(b.date.width - b.language.width)).toBeLessThanOrEqual(2)
+  expect(Math.abs(b.date.x - b.row.x)).toBeLessThanOrEqual(1)
+  expect(Math.abs(b.language.x + b.language.width - (b.row.x + b.row.width))).toBeLessThanOrEqual(1)
+  // Same height, so the select lines up with the date input.
+  const dateInputBox = await form(page).locator('input[type="date"]').boundingBox()
+  const selectBox = await page.getByLabel('語言', { exact: true }).boundingBox()
+  expect(Math.abs(dateInputBox.y - selectBox.y)).toBeLessThanOrEqual(1)
+  expect(Math.abs(dateInputBox.height - selectBox.height)).toBeLessThanOrEqual(1)
+  // Both above 內容.
+  expect(Math.max(b.date.y + b.date.height, b.language.y + b.language.height)).toBeLessThan(b.content.y)
+}
+
+async function expectDateLanguageStacked(page) {
+  const b = await fieldBoxes(page)
+  expect(b.language.y).toBeGreaterThanOrEqual(b.date.y + b.date.height)
+  // Each full width.
+  for (const box of [b.date, b.language]) {
+    expect(Math.abs(box.x - b.row.x)).toBeLessThanOrEqual(1)
+    expect(Math.abs(box.width - b.row.width)).toBeLessThanOrEqual(1)
+  }
+  expect(b.language.y + b.language.height).toBeLessThan(b.content.y)
+}
+
+// With 其他: 語言名稱 + 加入 on the next row, full width, above 內容.
+async function expectNameRow(page) {
+  await page.getByLabel('語言', { exact: true }).selectOption({ label: '其他' })
+  await expect(nameInput(page)).toBeVisible()
+  const b = await fieldBoxes(page)
+  const name = await nameField(page).boundingBox()
+  const input = await nameInput(page).boundingBox()
+  const button = await addLanguageButton(page).boundingBox()
+  expect(name.y).toBeGreaterThanOrEqual(Math.max(b.date.y + b.date.height, b.language.y + b.language.height))
+  expect(Math.abs(name.x - b.row.x)).toBeLessThanOrEqual(1)
+  expect(Math.abs(name.width - b.row.width)).toBeLessThanOrEqual(1)
+  expect(name.y + name.height).toBeLessThan(b.content.y)
+  // Input and 加入 on one line inside the row, 加入 at its right end.
+  expect(Math.abs(input.x - name.x)).toBeLessThanOrEqual(1)
+  expect(button.x).toBeGreaterThanOrEqual(input.x + input.width - 1)
+  expect(Math.abs(button.x + button.width - (name.x + name.width))).toBeLessThanOrEqual(1)
+  expect(Math.abs(button.y + button.height / 2 - (input.y + input.height / 2))).toBeLessThanOrEqual(4)
+}
+
+test.describe('editor 日期 / 語言 row', () => {
+  for (const width of [375, 768, 1280]) {
+    for (const mode of ['new', 'edit']) {
+      test(`${width}px ${mode}: 日期 and 語言 share a row; 語言名稱 + 加入 below`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 })
+        await seedEntry(page)
+        if (mode === 'new') await openNewEntry(page)
+        else await openEntry(page)
+        await expectDateLanguageOneRow(page)
+        await expectNoPageOverflow(page)
+        await expectNameRow(page)
+        await expectDateLanguageOneRow(page)
+        await expectNoPageOverflow(page)
+      })
+    }
+  }
+
+  for (const width of [355, 320]) {
+    for (const mode of ['new', 'edit']) {
+      test(`${width}px ${mode}: 日期 and 語言 stack, no horizontal overflow`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 })
+        await seedEntry(page)
+        if (mode === 'new') await openNewEntry(page)
+        else await openEntry(page)
+        await expectDateLanguageStacked(page)
+        await expectNoPageOverflow(page)
+        await expectNameRow(page)
+        await expectDateLanguageStacked(page)
+        await expectNoPageOverflow(page)
+      })
+    }
+  }
+
+  test('DOM and tab order: 日期 → 語言 → 語言名稱 → 加入 → 內容', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await startApp(page)
+    await openNewEntry(page)
+    const select = page.getByLabel('語言', { exact: true })
+    await select.selectOption({ label: '其他' })
+    const order = await form(page)
+      .locator('input, select, textarea, button')
+      .evaluateAll((els) =>
+        els.slice(0, 5).map((el) => `${el.tagName.toLowerCase()}:${el.type}:${el.textContent.trim()}`),
+      )
+    expect(order).toEqual(['input:date:', 'select:select-one:' + (await select.textContent()).trim(), 'input:text:', 'button:button:加入', 'textarea:textarea:'])
+    // No positive tabindex reorders them.
+    expect(await form(page).locator('[tabindex]:not([tabindex="0"]):not([tabindex="-1"])').count()).toBe(0)
+    // Keyboard: forward from 語言, and back from 內容 to 日期.
+    await select.focus()
+    await page.keyboard.press('Tab')
+    await expect(nameInput(page)).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(addLanguageButton(page)).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(page.getByLabel('內容')).toBeFocused()
+    for (const target of [addLanguageButton(page), nameInput(page), select]) {
+      await page.keyboard.press('Shift+Tab')
+      await expect(target).toBeFocused()
+    }
+    await page.keyboard.press('Shift+Tab')
+    await expect(form(page).locator('input[type="date"]')).toBeFocused()
+  })
+})
