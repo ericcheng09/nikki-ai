@@ -258,6 +258,30 @@ html {
   margin: 0 0 8px;
 }
 
+/* Label with a small action on the same line (API key + ？如何取得). */
+.field-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* A button that looks like a link; still a real <button>. */
+.text-button {
+  padding: 4px 0;
+  border: none;
+  background: none;
+  color: #2f6fde;
+  font: inherit;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.text-button:focus-visible {
+  outline: 2px solid #2f6fde;
+  outline-offset: 2px;
+}
+
 .settings-section h4 {
   font-size: 1rem;
   margin: 16px 0 4px;

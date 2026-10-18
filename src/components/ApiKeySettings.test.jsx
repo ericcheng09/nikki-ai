@@ -235,8 +235,9 @@ describe('ApiKeySettings', () => {
       '無法讀取設定，請重新整理頁面。',
     )
     expect(screen.queryByLabelText('API key')).not.toBeInTheDocument()
-    // Instructions are still useful even when settings fail to load.
-    expect(screen.getByText('如何取得 API key')).toBeInTheDocument()
+    // Instructions are still useful even when settings fail to load, so
+    // they are shown expanded.
+    expect(screen.getByRole('region', { name: '如何取得 API key' })).toBeVisible()
   })
 
   it('shows the instructions with a safe external link', async () => {
@@ -251,6 +252,64 @@ describe('ApiKeySettings', () => {
     expect(
       screen.getByText('API key 只會存在這個瀏覽器，只用來呼叫 Gemini，不會傳送到其他地方。'),
     ).toBeInTheDocument()
+  })
+
+  describe('如何取得 API key toggle', () => {
+    const toggle = () => screen.getByRole('button', { name: '？如何取得' })
+    // Found through the toggle: a hidden region has no accessible name.
+    const guide = () => document.getElementById(toggle().getAttribute('aria-controls'))
+
+    it('is expanded by default without a saved key', async () => {
+      await renderLoaded()
+      expect(toggle()).toHaveAttribute('aria-expanded', 'true')
+      expect(guide()).toBe(screen.getByRole('region', { name: '如何取得 API key' }))
+      expect(guide()).toBeVisible()
+    })
+
+    it('is collapsed by default with a saved key, and toggles open and closed', async () => {
+      withKey(KEY)
+      await renderLoaded()
+      expect(toggle()).toHaveAttribute('aria-expanded', 'false')
+      expect(guide()).not.toBeVisible()
+      expect(screen.queryByRole('link', { name: 'API key 頁面' })).not.toBeInTheDocument()
+      fireEvent.click(toggle())
+      expect(toggle()).toHaveAttribute('aria-expanded', 'true')
+      expect(guide()).toBeVisible()
+      expect(screen.getByRole('link', { name: 'API key 頁面' })).toBeInTheDocument()
+      fireEvent.click(toggle())
+      expect(toggle()).toHaveAttribute('aria-expanded', 'false')
+      expect(guide()).not.toBeVisible()
+    })
+
+    it('is a plain button that never submits the key form', async () => {
+      const input = await renderLoaded()
+      fireEvent.change(input, { target: { value: KEY } })
+      expect(toggle()).toHaveAttribute('type', 'button')
+      fireEvent.click(toggle())
+      expect(updateSettings).not.toHaveBeenCalled()
+    })
+
+    it('does not toggle itself when a key is saved or deleted afterwards', async () => {
+      const input = await renderLoaded()
+      expect(toggle()).toHaveAttribute('aria-expanded', 'true')
+      fireEvent.change(input, { target: { value: KEY } })
+      fireEvent.click(screen.getByRole('button', { name: '儲存' }))
+      expect(await screen.findByText('已儲存')).toBeInTheDocument()
+      expect(toggle()).toHaveAttribute('aria-expanded', 'true')
+      // The user's choice wins over the key state as well.
+      fireEvent.click(toggle())
+      fireEvent.click(screen.getByRole('button', { name: '刪除' }))
+      expect(await screen.findByText('已刪除')).toBeInTheDocument()
+      expect(toggle()).toHaveAttribute('aria-expanded', 'false')
+      expect(guide()).not.toBeVisible()
+    })
+
+    it('shows neither the toggle nor the guide while settings load', () => {
+      vi.mocked(loadSettings).mockReturnValue(new Promise(() => {}))
+      render(<ApiKeySettings />)
+      expect(screen.queryByRole('button', { name: '？如何取得' })).not.toBeInTheDocument()
+      expect(screen.queryByText('如何取得 API key')).not.toBeInTheDocument()
+    })
   })
 
   it('treats a missing geminiApiKey field as not set', async () => {

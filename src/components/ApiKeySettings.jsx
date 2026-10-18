@@ -54,6 +54,13 @@ export default function ApiKeySettings({ onKeyChange, keyCheck, onRetry }) {
   const checkLineRef = useRef(null)
   const inputId = useId()
   const inputRef = useRef(null)
+  // 「如何取得 API key」 (decisions.md Phase 2 設定頁): decided once when the
+  // stored key has loaded, open without a key and closed with one; later
+  // saves or deletes never toggle it, only the user does. Opened when
+  // loading fails, as the guide is still useful then.
+  const [guideOpen, setGuideOpen] = useState(false)
+  const guideId = useId()
+  const guideHeadingId = useId()
   // Kept in a ref so the load effect does not re-run when the parent
   // passes a new callback on every render.
   const onKeyChangeRef = useRef(onKeyChange)
@@ -88,11 +95,14 @@ export default function ApiKeySettings({ onKeyChange, keyCheck, onRetry }) {
         const key = settings.geminiApiKey ?? ''
         setSavedKey(key)
         setValue(key)
+        setGuideOpen(!key)
         setStatus('ready')
         onKeyChangeRef.current?.(key)
       })
       .catch(() => {
-        if (active) setStatus('error')
+        if (!active) return
+        setGuideOpen(true)
+        setStatus('error')
       })
     return () => {
       active = false
@@ -198,7 +208,18 @@ export default function ApiKeySettings({ onKeyChange, keyCheck, onRetry }) {
 
           <form className="settings-form" onSubmit={handleSubmit} noValidate>
             <div className="field">
-              <label htmlFor={inputId}>API key</label>
+              <div className="field-label-row">
+                <label htmlFor={inputId}>API key</label>
+                <button
+                  type="button"
+                  className="text-button"
+                  aria-expanded={guideOpen}
+                  aria-controls={guideId}
+                  onClick={() => setGuideOpen((open) => !open)}
+                >
+                  ？如何取得
+                </button>
+              </div>
               <div className="input-row">
                 <input
                   id={inputId}
@@ -255,21 +276,25 @@ export default function ApiKeySettings({ onKeyChange, keyCheck, onRetry }) {
         </>
       )}
 
-      <h4>如何取得 API key</h4>
-      <ol className="settings-steps">
-        <li>
-          前往 Google AI Studio 的{' '}
-          <a href={AI_STUDIO_URL} target="_blank" rel="noopener noreferrer">
-            API key 頁面
-          </a>
-          。
-        </li>
-        <li>用 Google 帳號登入，建立一個新的 API key。</li>
-        <li>複製產生的 key，貼到上方欄位後按「儲存」。</li>
-      </ol>
-      <p className="muted">
-        API key 只會存在這個瀏覽器，只用來呼叫 Gemini，不會傳送到其他地方。
-      </p>
+      {/* Kept in the DOM while collapsed (hidden) so the toggle's
+          aria-controls always points at it. */}
+      <div id={guideId} role="region" aria-labelledby={guideHeadingId} hidden={!guideOpen}>
+        <h4 id={guideHeadingId}>如何取得 API key</h4>
+        <ol className="settings-steps">
+          <li>
+            前往 Google AI Studio 的{' '}
+            <a href={AI_STUDIO_URL} target="_blank" rel="noopener noreferrer">
+              API key 頁面
+            </a>
+            。
+          </li>
+          <li>用 Google 帳號登入，建立一個新的 API key。</li>
+          <li>複製產生的 key，貼到上方欄位後按「儲存」。</li>
+        </ol>
+        <p className="muted">
+          API key 只會存在這個瀏覽器，只用來呼叫 Gemini，不會傳送到其他地方。
+        </p>
+      </div>
     </section>
   )
 }

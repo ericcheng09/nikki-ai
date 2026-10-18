@@ -98,7 +98,7 @@ test.describe('settings: Gemini model', () => {
     await expect(modelSection(page).getByText('正在取得模型清單…')).toHaveCount(0)
 
     // Only Gemini models supporting generateContent, by displayName, in API order.
-    expect(await optionLabels(page)).toEqual([
+    await expect.poll(() => optionLabels(page)).toEqual([
       'Gemini 2.5 Pro',
       'Gemini 2.5 Flash',
       'Gemini 2.0 Flash-Lite',
@@ -128,7 +128,7 @@ test.describe('settings: Gemini model', () => {
     await openSettings(page)
     await saveKey(page)
     await expect(modelSelect(page)).toHaveValue('models/gemini-X-FLASH-preview')
-    expect(await optionLabels(page)).toEqual([
+    await expect.poll(() => optionLabels(page)).toEqual([
       'Gemini Pro X',
       'models/gemini-X-FLASH-preview',
       'Later Flash',
@@ -147,7 +147,7 @@ test.describe('settings: Gemini model', () => {
     ])
     await openSettings(page)
     await saveKey(page)
-    expect(await optionLabels(page)).toEqual(['Gemini 2.5 Pro', 'Gemini 1.5 Pro 002'])
+    await expect.poll(() => optionLabels(page)).toEqual(['Gemini 2.5 Pro', 'Gemini 1.5 Pro 002'])
     await expect(modelSelect(page)).toHaveValue('')
     await expect(modelSelect(page).locator('option:checked')).toHaveText('請選擇模型')
     // 請選擇模型 appears only as the placeholder option, not as a separate line.
@@ -221,7 +221,7 @@ test.describe('settings: Gemini model', () => {
     await openSettings(page)
     await saveKey(page)
     await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-flash')
-    expect(await optionLabels(page)).toEqual(['Gemini 2.5 Pro', 'Gemini 2.5 Flash', 'Gemini 3 Pro'])
+    await expect.poll(() => optionLabels(page)).toEqual(['Gemini 2.5 Pro', 'Gemini 2.5 Flash', 'Gemini 3 Pro'])
 
     const tokens = gemini.modelRequests.map(({ url }) => new URL(url).searchParams.get('pageToken'))
     expect(tokens).toEqual([null, 'page-2', 'page-3'])
@@ -239,7 +239,7 @@ test.describe('settings: Gemini model', () => {
     await openSettings(page)
     await saveKey(page)
     await expect(modelSection(page).getByText('找不到可用的模型。')).toBeVisible()
-    expect(await optionLabels(page)).toEqual([])
+    await expect.poll(() => optionLabels(page)).toEqual([])
     expect((await storedModel(page)) ?? '').toBe('')
   })
 
@@ -428,7 +428,7 @@ test.describe('settings: Gemini model filter', () => {
     // The first stable Flash in API order (gemini-2.0-flash-001), not the
     // earlier preview, -exp or -latest Flash entries.
     await expect(modelSelect(page)).toHaveValue('models/gemini-2.0-flash-001')
-    expect(await optionLabels(page)).toEqual(STABLE_LABELS)
+    await expect.poll(() => optionLabels(page)).toEqual(STABLE_LABELS)
     await expect.poll(() => storedModel(page)).toBe('models/gemini-2.0-flash-001')
     await expect(modelAlert(page)).toHaveCount(0)
     await expect(modelSection(page).getByText('找不到可用的模型。')).toHaveCount(0)
@@ -449,7 +449,7 @@ test.describe('settings: Gemini model filter', () => {
     await saveKey(page)
     // Embedding (no generateContent) and Gemma stay out; order kept.
     await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-flash-preview-05-20')
-    expect(await optionLabels(page)).toEqual([
+    await expect.poll(() => optionLabels(page)).toEqual([
       'Gemini 3 Pro Preview',
       'Gemini 2.5 Flash Preview',
       'Gemini Flash Latest',
@@ -467,7 +467,7 @@ test.describe('settings: Gemini model filter', () => {
       geminiModel: 'models/gemini-3-pro-preview',
     })
     await expect(modelSelect(page)).toHaveValue('models/gemini-3-pro-preview')
-    expect(await optionLabels(page)).toEqual([...STABLE_LABELS, 'Gemini 3 Pro Preview'])
+    await expect.poll(() => optionLabels(page)).toEqual([...STABLE_LABELS, 'Gemini 3 Pro Preview'])
     await expect(modelAlert(page)).toHaveCount(0)
     await expect(modelSection(page).getByText(MISSING_MODEL)).toHaveCount(0)
     // Not replaced by the Flash auto-pick; the stored value is unchanged.
@@ -480,7 +480,7 @@ test.describe('settings: Gemini model filter', () => {
     await expect.poll(() => storedModel(page)).toBe('models/gemini-2.5-pro')
     await page.reload()
     await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-pro')
-    expect(await optionLabels(page)).toEqual(STABLE_LABELS)
+    await expect.poll(() => optionLabels(page)).toEqual(STABLE_LABELS)
   })
 
   test('a saved model missing from the full list shows the warning', async ({ page }) => {
@@ -491,7 +491,7 @@ test.describe('settings: Gemini model filter', () => {
     })
     await expect(modelAlert(page)).toHaveText(MISSING_MODEL)
     await expect(modelSelect(page)).toHaveValue('')
-    expect(await optionLabels(page)).toEqual(STABLE_LABELS)
+    await expect.poll(() => optionLabels(page)).toEqual(STABLE_LABELS)
     await page.waitForLoadState('networkidle')
     expect(await storedModel(page)).toBe('models/gemini-1.0-pro-vision')
   })
@@ -504,6 +504,6 @@ test.describe('settings: Gemini model filter', () => {
     })
     await expect(modelAlert(page)).toHaveText(MISSING_MODEL)
     await expect(modelSelect(page)).toHaveValue('')
-    expect(await optionLabels(page)).toEqual(STABLE_LABELS)
+    await expect.poll(() => optionLabels(page)).toEqual(STABLE_LABELS)
   })
 })
