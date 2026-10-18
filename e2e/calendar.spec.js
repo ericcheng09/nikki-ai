@@ -131,7 +131,8 @@ test.describe('home calendar: header and month switching (8.3-3)', () => {
     // 今天 on the current month is a no-op.
     await todayButton(page).click()
     await expect(title(page)).toHaveText('2026 年 10 月')
-    await expect(page).toHaveURL(HOME_URL)
+    // The shown month is kept in the URL (P3-T3).
+    await expect(page).toHaveURL(/\/nikki-ai\/\?month=2026-10$/)
   })
 
   test('switching across years: Dec -> Jan and Jan -> Dec', async ({ page }) => {
@@ -187,8 +188,11 @@ test.describe('home calendar: grid', () => {
     for (let i = 0; i < 11; i++) await prevButton(page).click()
     await expect(title(page)).toHaveText('2025 年 11 月')
     for (let step = 0; step < 16; step++) {
-      const heading = await title(page).textContent()
-      const [, y, m] = heading.match(/(\d+) 年 (\d+) 月/).map(Number)
+      const y = 2025 + Math.floor((10 + step) / 12)
+      const m = ((10 + step) % 12) + 1
+      const heading = `${y} 年 ${m} 月`
+      // Wait for the re-render before reading the grid.
+      await expect(title(page)).toHaveText(heading)
       const rows = await gridTexts(page)
       const days = []
       for (const row of rows) {
@@ -334,7 +338,10 @@ test.describe('home calendar: today', () => {
     await expect(grid(page).locator('[aria-current]')).toHaveCount(0)
 
     await writeStore(page, 'entries', [entry('t', '2026-10-18', 'Today')])
+    // The month is in the URL since P3-T3: go back to October first.
+    await todayButton(page).click()
     await page.reload()
+    await expect(title(page)).toHaveText('2026 年 10 月')
     const marked = grid(page).getByRole('button', { name: '10月18日，有日記' })
     await expect(marked).toHaveAttribute('aria-current', 'date')
     await expect(grid(page).locator('[aria-current]')).toHaveCount(1)

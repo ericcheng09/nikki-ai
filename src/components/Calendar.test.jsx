@@ -182,4 +182,34 @@ describe('Calendar', () => {
     render(<Calendar />)
     expect(within(grid()).queryByRole('button')).not.toBeInTheDocument()
   })
+
+  it('shows the selected day pressed and other marked days not pressed', () => {
+    render(
+      <Calendar
+        entries={[entry('2026-10-05'), entry('2026-10-18')]}
+        selectedDate="2026-10-05"
+      />,
+    )
+    const selected = screen.getByRole('button', { name: '10月5日，有日記' })
+    expect(selected).toHaveAttribute('aria-pressed', 'true')
+    expect(selected).toHaveClass('is-selected', 'has-entry')
+    const other = screen.getByRole('button', { name: '10月18日，有日記' })
+    expect(other).toHaveAttribute('aria-pressed', 'false')
+    expect(other).not.toHaveClass('is-selected')
+    // Selected and today can combine.
+    expect(other).toHaveClass('is-today')
+  })
+
+  it('ignores a selectedDate on a day without entries', () => {
+    render(<Calendar entries={[entry('2026-10-05')]} selectedDate="2026-10-09" />)
+    const plain = within(grid()).getByText('9')
+    expect(plain).not.toHaveAttribute('aria-pressed')
+    expect(plain).not.toHaveClass('is-selected')
+  })
+
+  it('has no pressed day without a selection', () => {
+    render(<Calendar entries={[entry('2026-10-05')]} />)
+    expect(screen.getByRole('button', { name: '10月5日，有日記' })).toHaveAttribute('aria-pressed', 'false')
+  })
 })
+

@@ -19,9 +19,10 @@ const WEEKDAY_NAMES = WEEKDAY_LABELS.map((label) => `星期${label}`)
 //
 // `month` / `onMonthChange` make the shown month controllable (T3 keeps
 // it in the URL); without `month` the component keeps its own state,
-// starting at the current month. Days with a non-deleted entry are buttons
-// that call `onSelectDate(date)`; other days are plain text.
-export default function Calendar({ entries, month, onMonthChange, onSelectDate }) {
+// starting at the current month. Days with a non-deleted entry are toggle
+// buttons that call `onSelectDate(date)`; `selectedDate` is shown pressed.
+// Other days are plain text.
+export default function Calendar({ entries, month, onMonthChange, selectedDate = null, onSelectDate }) {
   const [ownMonth, setOwnMonth] = useState(() => currentMonth())
   // monthGrid throws on an invalid month, so a controlled value is always
   // validated here and falls back to the current month.
@@ -97,6 +98,7 @@ export default function Calendar({ entries, month, onMonthChange, onSelectDate }
                       date={date}
                       hasEntry={marked.has(date)}
                       isToday={date === today}
+                      isSelected={date === selectedDate}
                       onSelect={onSelectDate}
                     />
                   )}
@@ -110,9 +112,17 @@ export default function Calendar({ entries, month, onMonthChange, onSelectDate }
   )
 }
 
-function Day({ date, hasEntry, isToday, onSelect }) {
+function Day({ date, hasEntry, isToday, isSelected, onSelect }) {
   const dayNumber = Number(date.slice(8))
-  const className = ['calendar-day', hasEntry && 'has-entry', isToday && 'is-today']
+  // Only a marked day can be selected; a stale selection on a plain day
+  // is ignored.
+  const selected = hasEntry && isSelected
+  const className = [
+    'calendar-day',
+    hasEntry && 'has-entry',
+    isToday && 'is-today',
+    selected && 'is-selected',
+  ]
     .filter(Boolean)
     .join(' ')
   const current = isToday ? 'date' : undefined
@@ -132,6 +142,7 @@ function Day({ date, hasEntry, isToday, onSelect }) {
       className={className}
       aria-label={`${formatDayTitle(date)}，有日記`}
       aria-current={current}
+      aria-pressed={selected}
       onClick={() => onSelect?.(date)}
     >
       {dayNumber}

@@ -1,5 +1,6 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
+import { formatDayTitle } from '../lib/calendar.js'
 import { filterActiveEntries, sortEntries } from '../lib/diary.js'
 
 const PREVIEW_LENGTH = 80
@@ -17,16 +18,38 @@ function preview(content) {
 // Presentational list; HomePage loads the entries once and shares them
 // with the calendar. `status`: 'loading' | 'ready' | 'error'. `entries` is
 // the raw stored list (tombstones included); only active ones are shown.
-export default function DiaryList({ status, entries }) {
-  const shown = useMemo(
-    () => (status === 'ready' ? sortEntries(filterActiveEntries(entries ?? [])) : []),
-    [status, entries],
-  )
+// With `selectedDate` only that day's entries are listed (same order),
+// under 「M月D日 的日記」 with a 「顯示全部」 button calling `onShowAll`.
+export default function DiaryList({ status, entries, selectedDate = null, onShowAll }) {
+  const shown = useMemo(() => {
+    if (status !== 'ready') return []
+    const active = sortEntries(filterActiveEntries(entries ?? []))
+    return selectedDate ? active.filter((entry) => entry.date === selectedDate) : active
+  }, [status, entries, selectedDate])
+  const dayTitle = selectedDate ? formatDayTitle(selectedDate) : ''
+  const headingRef = useRef(null)
+
+  // 顯示全部 removes itself; move focus to the list heading (now 我的日記)
+  // so keyboard and screen reader users are not dropped to the page start.
+  function showAll() {
+    onShowAll?.()
+    headingRef.current?.focus()
+  }
 
   return (
     <section className="diary-list">
       <div className="toolbar">
-        <h2>我的日記</h2>
+        <div className="toolbar-title">
+          {/* tabIndex -1: focusable from script only, not a tab stop. */}
+          <h2 ref={headingRef} tabIndex={-1}>
+            {dayTitle ? `${dayTitle} 的日記` : '我的日記'}
+          </h2>
+          {dayTitle && (
+            <button type="button" className="button button-secondary" onClick={showAll}>
+              顯示全部
+            </button>
+          )}
+        </div>
         <Link className="button" to="/entry/new">
           新增日記
         </Link>

@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import DiaryEditor from './DiaryEditor.jsx'
 import {
   deleteEntry,
@@ -26,12 +26,19 @@ function EntryStub() {
   return <p>日記頁 {id}</p>
 }
 
-function renderEditor(entry) {
+// Shows the home URL including its query, to check where 刪除 returns.
+function HomeStub() {
+  const location = useLocation()
+  return <p>主畫面{location.search}</p>
+}
+
+// `before`: in-app pages already in the history before the entry page.
+function renderEditor(entry, before = []) {
   const path = entry ? `/entry/${entry.id}` : '/entry/new'
   return render(
-    <MemoryRouter initialEntries={[path]}>
+    <MemoryRouter initialEntries={[...before, path]} initialIndex={before.length}>
       <Routes>
-        <Route path="/" element={<p>主畫面</p>} />
+        <Route path="/" element={<HomeStub />} />
         <Route path="/entry/new" element={<DiaryEditor />} />
         <Route
           path="/entry/:id"
@@ -295,6 +302,31 @@ describe('DiaryEditor (edit entry)', () => {
     expect(window.confirm).toHaveBeenCalledTimes(1)
     expect(deleteEntry).toHaveBeenCalledWith(existing)
     expect(await screen.findByText('主畫面')).toBeInTheDocument()
+  })
+
+  it('after deleting, goes back to the previous in-app page (calendar URL kept)', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.mocked(deleteEntry).mockResolvedValue()
+    renderEditor(existing, ['/?month=2026-10&date=2026-10-15'])
+
+    fireEvent.click(deleteButton())
+
+    expect(await screen.findByText('主畫面?month=2026-10&date=2026-10-15')).toBeInTheDocument()
+  })
+
+  it('after deleting a directly opened entry, replaces it with home', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.mocked(deleteEntry).mockResolvedValue()
+    // BrowserRouter-like state: the first page of the session (index 0),
+    // even though the location key is not 'default' (e.g. after a replace).
+    window.history.replaceState({ idx: 0 }, '')
+    try {
+      renderEditor(existing, ['/somewhere-outside'])
+      fireEvent.click(deleteButton())
+      expect(await screen.findByText('主畫面')).toBeInTheDocument()
+    } finally {
+      window.history.replaceState(null, '')
+    }
   })
 
   it('deletes the latest saved version after an edit', async () => {

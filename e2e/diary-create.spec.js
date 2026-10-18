@@ -183,7 +183,7 @@ test.describe('create diary entry', () => {
     const today = await browserLocalDate(page)
     await expect(entryItems(page)).toHaveCount(3)
     await expect(entryItems(page).locator('time')).toHaveText([today, today, today])
-    expect(await listedPreviews(page)).toEqual([
+    await expect.poll(() => listedPreviews(page)).toEqual([
       'Third entry of the day',
       'Second entry of the day',
       'First entry of the day',
@@ -192,7 +192,7 @@ test.describe('create diary entry', () => {
     // Order is the same after a reload.
     await page.reload()
     await expect(entryItems(page)).toHaveCount(3)
-    expect(await listedPreviews(page)).toEqual([
+    await expect.poll(() => listedPreviews(page)).toEqual([
       'Third entry of the day',
       'Second entry of the day',
       'First entry of the day',
@@ -212,7 +212,7 @@ test.describe('create diary entry', () => {
 
     await expect(entryItems(page)).toHaveCount(3)
     await expect(entryItems(page).locator('time')).toHaveText([today, threeDaysAgo, lastMonth])
-    expect(await listedPreviews(page)).toEqual([
+    await expect.poll(() => listedPreviews(page)).toEqual([
       'Entry for today',
       'Entry for three days ago',
       'Entry for forty days ago',

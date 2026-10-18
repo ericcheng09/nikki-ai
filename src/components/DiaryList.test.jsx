@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import DiaryList from './DiaryList.jsx'
 
@@ -122,5 +122,60 @@ describe('DiaryList (status)', () => {
   it('treats missing entries as an empty list', () => {
     renderList(undefined)
     expect(screen.getByText(/還沒有日記/)).toBeInTheDocument()
+  })
+})
+
+describe('DiaryList (selected day)', () => {
+  const all = [
+    entry('a', '2026-10-18', '2026-10-18T01:00:00.000Z'),
+    entry('b', '2026-10-17', '2026-10-17T01:00:00.000Z'),
+    entry('c', '2026-10-18', '2026-10-18T09:00:00.000Z'),
+    { id: 'gone', updatedAt: 'x', deleted: true, deletedAt: 'x' },
+  ]
+
+  function renderSelected(selectedDate, onShowAll = vi.fn()) {
+    render(
+      <MemoryRouter>
+        <DiaryList status="ready" entries={all} selectedDate={selectedDate} onShowAll={onShowAll} />
+      </MemoryRouter>,
+    )
+    return onShowAll
+  }
+
+  it('lists only that day, newest written first, under 「M月D日 的日記」', () => {
+    renderSelected('2026-10-18')
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('10月18日 的日記')
+    const items = screen.getAllByRole('listitem')
+    expect(items.map((li) => li.querySelector('.entry-preview').textContent)).toEqual([
+      'content c',
+      'content a',
+    ])
+  })
+
+  it('calls onShowAll from 顯示全部', () => {
+    const onShowAll = renderSelected('2026-10-18')
+    fireEvent.click(screen.getByRole('button', { name: '顯示全部' }))
+    expect(onShowAll).toHaveBeenCalledTimes(1)
+  })
+
+  it('moves focus to the list heading after 顯示全部', () => {
+    renderSelected('2026-10-18')
+    fireEvent.click(screen.getByRole('button', { name: '顯示全部' }))
+    const heading = screen.getByRole('heading', { level: 2 })
+    expect(heading).toHaveFocus()
+    // Focusable from script only, not a tab stop.
+    expect(heading).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('has no 顯示全部 and the normal title without a selection', () => {
+    renderSelected(null)
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('我的日記')
+    expect(screen.queryByRole('button', { name: '顯示全部' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('listitem')).toHaveLength(3)
+  })
+
+  it('keeps 新增日記 linking to a plain new entry while a day is selected', () => {
+    renderSelected('2026-10-18')
+    expect(screen.getByRole('link', { name: '新增日記' })).toHaveAttribute('href', '/entry/new')
   })
 })
