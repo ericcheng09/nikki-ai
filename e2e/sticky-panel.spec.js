@@ -24,7 +24,6 @@ const LONG_ANALYSIS = {
 
 const form = (page) => page.locator('form.diary-editor')
 const panel = (page) => page.getByRole('region', { name: 'AI 批改結果' })
-const textarea = (page) => form(page).locator('textarea')
 const dateInput = (page) => form(page).locator('input[type="date"]')
 
 async function seedAndOpen(page, width) {
@@ -48,13 +47,9 @@ async function seedAndOpen(page, width) {
   await expect(panel(page).getByRole('region', { name: '中文翻譯' })).toBeVisible()
 }
 
-// The textarea has a fixed row count, so a long diary alone does not make
-// the page taller; resize it (as a user dragging its corner would) so the
-// page itself scrolls on the wide layout.
+// The 內容 box grows with the long seeded diary (F9), so on the wide
+// layout the page itself scrolls; make sure it does before relying on it.
 async function makePageLong(page) {
-  await textarea(page).evaluate((el) => {
-    el.style.height = '2000px'
-  })
   await expect.poll(() => pageScroll(page).then((s) => s.max)).toBeGreaterThan(800)
 }
 

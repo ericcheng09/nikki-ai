@@ -9,6 +9,7 @@ import {
   isBlank,
 } from '../lib/diary.js'
 import { entryLanguage, hasUnsavedChanges } from '../lib/editorForm.js'
+import useAutoGrow from '../lib/useAutoGrow.js'
 import {
   OTHER_OPTION_VALUE,
   addLanguage,
@@ -52,6 +53,9 @@ export default function DiaryEditor({ entry }) {
   // both see busy === false. The ref blocks the second one immediately.
   const busyRef = useRef(false)
   const navigate = useNavigate()
+  // The 內容 box grows with its text (at least 12 rows, no inner scroll).
+  const contentRef = useRef(null)
+  useAutoGrow(contentRef, content)
 
   useEffect(() => {
     let active = true
@@ -296,6 +300,8 @@ export default function DiaryEditor({ entry }) {
         <label className="field">
           <span>內容</span>
           <textarea
+            ref={contentRef}
+            className="auto-grow"
             rows={12}
             value={content}
             onChange={(event) => {

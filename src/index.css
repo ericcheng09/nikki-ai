@@ -219,6 +219,14 @@ html {
   border-radius: 6px;
 }
 
+/* The diary box is sized by useAutoGrow to fit all of its text, so it
+   never scrolls inside and has no drag handle (a dragged height would be
+   replaced on the next keystroke anyway). */
+.field textarea.auto-grow {
+  overflow: hidden;
+  resize: none;
+}
+
 .actions {
   display: flex;
   align-items: center;

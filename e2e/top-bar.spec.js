@@ -81,8 +81,8 @@ test.describe('top bar', () => {
   test('stays at the top after scrolling a long page', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 700 })
     await startApp(page)
-    // A long home list (the editor textarea scrolls on its own, so the
-    // entry page itself is not necessarily long).
+    // A long home list makes the page scroll (a long diary on the entry
+    // page would too, since the 內容 box grows with its text).
     await writeStore(
       page,
       'entries',

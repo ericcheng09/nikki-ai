@@ -203,6 +203,30 @@ describe('DiaryEditor (edit entry)', () => {
     expect(deleteButton()).toBeInTheDocument()
   })
 
+  it('sizes the 內容 box to its text, at least 12 rows, without changing the value', () => {
+    // jsdom does no layout (and loads no CSS, so no borders): derive
+    // scrollHeight from the line count.
+    const spy = vi
+      .spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get')
+      .mockImplementation(function scrollHeight() {
+        return Math.max(12, this.value.split('\n').length) * 25
+      })
+    try {
+      renderEditor({ ...existing, content: 'line\n'.repeat(29) })
+      const box = contentInput()
+      expect(box).toHaveAttribute('rows', '12')
+      expect(box).toHaveClass('auto-grow')
+      expect(box.style.height).toBe('750px')
+
+      // Deleting text shrinks it back, but not below 12 rows.
+      fireEvent.change(box, { target: { value: '  short  ' } })
+      expect(box.style.height).toBe('300px')
+      expect(box).toHaveValue('  short  ')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('saves edits with a newer updatedAt, stays on the page and shows 已儲存', async () => {
     vi.mocked(saveEntry).mockResolvedValue()
     renderEditor(existing)
