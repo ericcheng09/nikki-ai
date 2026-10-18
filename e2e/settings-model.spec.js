@@ -6,6 +6,7 @@ import {
   fulfillJson,
   installGeminiMock,
   readStore,
+  writeStore,
 } from './helpers.js'
 
 // E2E for Phase 2 T2b: Gemini model selection on the settings page
@@ -135,14 +136,15 @@ test.describe('settings: Gemini model', () => {
   test('without a Flash model nothing is selected and 請選擇模型 is shown', async ({ page }) => {
     gemini.respond = listOf([
       model('models/gemini-2.5-pro', 'Gemini 2.5 Pro'),
-      model('models/gemini-ultra', 'Gemini Ultra'),
+      // A pinned stable revision (still a main text model, not Flash).
+      model('models/gemini-1.5-pro-002', 'Gemini 1.5 Pro 002'),
       // Not a gemini model / not generateContent: filtered out, never picked.
       model('models/gemma-flash', 'Gemma Flash'),
       model('models/gemini-flash-embed', 'Embed Flash', ['embedContent']),
     ])
     await openSettings(page)
     await saveKey(page)
-    expect(await optionLabels(page)).toEqual(['Gemini 2.5 Pro', 'Gemini Ultra'])
+    expect(await optionLabels(page)).toEqual(['Gemini 2.5 Pro', 'Gemini 1.5 Pro 002'])
     await expect(modelSelect(page)).toHaveValue('')
     await expect(modelSelect(page).locator('option:checked')).toHaveText('請選擇模型')
     // 請選擇模型 appears only as the placeholder option, not as a separate line.
@@ -150,9 +152,9 @@ test.describe('settings: Gemini model', () => {
     expect((await storedModel(page)) ?? '').toBe('')
 
     // Picking one saves it.
-    await modelSelect(page).selectOption('models/gemini-ultra')
+    await modelSelect(page).selectOption('models/gemini-1.5-pro-002')
     await expect(modelNotice(page)).toHaveText('已儲存')
-    await expect.poll(() => storedModel(page)).toBe('models/gemini-ultra')
+    await expect.poll(() => storedModel(page)).toBe('models/gemini-1.5-pro-002')
   })
 
   test('changing the model saves immediately and persists after reload', async ({ page }) => {
@@ -337,5 +339,139 @@ test.describe('settings: Gemini model', () => {
     // A new key brings the section back with the stored model selected.
     await saveKey(page, OTHER_KEY)
     await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-flash')
+  })
+})
+
+// --- Phase 2 F5: stricter model list (decisions.md 「Gemini 模型」) ---------
+// Only stable main text models are listed: gemini-<version>-pro / -flash /
+// -flash-lite, optionally with a 3-digit revision. If none match, the full
+// generateContent list is shown. A saved model hidden by the filter but
+// still available stays as an extra last option without a warning.
+
+// A realistic list in API order: stable models mixed with previews,
+// experimental, -latest, image, TTS, live, embedding and Gemma entries.
+const REALISTIC_MODELS = [
+  model('models/gemini-2.5-flash-preview-05-20', 'Gemini 2.5 Flash Preview 05-20'),
+  model('models/gemini-2.5-pro', 'Gemini 2.5 Pro'),
+  model('models/gemini-2.0-flash-exp', 'Gemini 2.0 Flash Experimental'),
+  model('models/gemini-flash-latest', 'Gemini Flash Latest'),
+  model('models/gemini-2.5-flash-image', 'Nano Banana'),
+  model('models/gemini-2.5-flash-preview-tts', 'Gemini 2.5 Flash Preview TTS'),
+  model('models/gemini-2.0-flash-live-001', 'Gemini 2.0 Flash Live'),
+  model('models/gemini-2.0-flash-001', 'Gemini 2.0 Flash 001'),
+  model('models/gemini-2.5-flash', 'Gemini 2.5 Flash'),
+  model('models/gemini-2.5-flash-lite', 'Gemini 2.5 Flash-Lite'),
+  model('models/gemini-3-pro-preview', 'Gemini 3 Pro Preview'),
+  model('models/gemini-2.0-flash-lite-001', 'Gemini 2.0 Flash-Lite 001'),
+  model('models/gemini-exp-1206', 'Gemini Experimental 1206'),
+  model('models/gemini-pro-latest', 'Gemini Pro Latest'),
+  model('models/gemini-2.0-flash-thinking-exp', 'Gemini 2.0 Flash Thinking'),
+  model('models/gemini-embedding-001', 'Gemini Embedding 001', ['embedContent']),
+  model('models/gemma-3-27b-it', 'Gemma 3 27B'),
+  model('models/gemini-1.5-flash-8b', 'Gemini 1.5 Flash-8B'),
+]
+const STABLE_LABELS = [
+  'Gemini 2.5 Pro',
+  'Gemini 2.0 Flash 001',
+  'Gemini 2.5 Flash',
+  'Gemini 2.5 Flash-Lite',
+  'Gemini 2.0 Flash-Lite 001',
+]
+
+async function seedSettings(page, settings) {
+  // The app creates its database on first load.
+  await openSettings(page)
+  await writeStore(page, 'settings', settings)
+  await page.reload()
+  await expect(page.getByRole('heading', { level: 3, name: 'Gemini API key' })).toBeVisible()
+}
+
+test.describe('settings: Gemini model filter', () => {
+  test('lists only stable main text models in API order; auto-picks a stable Flash', async ({
+    page,
+  }) => {
+    gemini.respond = listOf(REALISTIC_MODELS)
+    await openSettings(page)
+    await saveKey(page)
+    // The first stable Flash in API order (gemini-2.0-flash-001), not the
+    // earlier preview, -exp or -latest Flash entries.
+    await expect(modelSelect(page)).toHaveValue('models/gemini-2.0-flash-001')
+    expect(await optionLabels(page)).toEqual(STABLE_LABELS)
+    await expect.poll(() => storedModel(page)).toBe('models/gemini-2.0-flash-001')
+    await expect(modelAlert(page)).toHaveCount(0)
+    await expect(modelSection(page).getByText('找不到可用的模型。')).toHaveCount(0)
+  })
+
+  test('when no stable model matches, the full generateContent list is shown', async ({
+    page,
+  }) => {
+    const fallback = [
+      model('models/gemini-3-pro-preview', 'Gemini 3 Pro Preview'),
+      model('models/gemini-embedding-001', 'Gemini Embedding 001', ['embedContent']),
+      model('models/gemini-2.5-flash-preview-05-20', 'Gemini 2.5 Flash Preview'),
+      model('models/gemma-3-27b-it', 'Gemma 3 27B'),
+      model('models/gemini-flash-latest', 'Gemini Flash Latest'),
+    ]
+    gemini.respond = listOf(fallback)
+    await openSettings(page)
+    await saveKey(page)
+    // Embedding (no generateContent) and Gemma stay out; order kept.
+    await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-flash-preview-05-20')
+    expect(await optionLabels(page)).toEqual([
+      'Gemini 3 Pro Preview',
+      'Gemini 2.5 Flash Preview',
+      'Gemini Flash Latest',
+    ])
+    await expect.poll(() => storedModel(page)).toBe('models/gemini-2.5-flash-preview-05-20')
+    await expect(modelAlert(page)).toHaveCount(0)
+  })
+
+  test('a saved preview still available stays as an extra last option, no warning', async ({
+    page,
+  }) => {
+    gemini.respond = listOf(REALISTIC_MODELS)
+    await seedSettings(page, {
+      geminiApiKey: FAKE_KEY,
+      geminiModel: 'models/gemini-3-pro-preview',
+    })
+    await expect(modelSelect(page)).toHaveValue('models/gemini-3-pro-preview')
+    expect(await optionLabels(page)).toEqual([...STABLE_LABELS, 'Gemini 3 Pro Preview'])
+    await expect(modelAlert(page)).toHaveCount(0)
+    await expect(modelSection(page).getByText(MISSING_MODEL)).toHaveCount(0)
+    // Not replaced by the Flash auto-pick; the stored value is unchanged.
+    await page.waitForLoadState('networkidle')
+    expect(await storedModel(page)).toBe('models/gemini-3-pro-preview')
+
+    // Choosing a stable model drops the extra option on the next visit.
+    await modelSelect(page).selectOption({ label: 'Gemini 2.5 Pro' })
+    await expect(modelNotice(page)).toHaveText('已儲存')
+    await expect.poll(() => storedModel(page)).toBe('models/gemini-2.5-pro')
+    await page.reload()
+    await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-pro')
+    expect(await optionLabels(page)).toEqual(STABLE_LABELS)
+  })
+
+  test('a saved model missing from the full list shows the warning', async ({ page }) => {
+    gemini.respond = listOf(REALISTIC_MODELS)
+    await seedSettings(page, {
+      geminiApiKey: FAKE_KEY,
+      geminiModel: 'models/gemini-1.0-pro-vision',
+    })
+    await expect(modelAlert(page)).toHaveText(MISSING_MODEL)
+    await expect(modelSelect(page)).toHaveValue('')
+    expect(await optionLabels(page)).toEqual(STABLE_LABELS)
+    await page.waitForLoadState('networkidle')
+    expect(await storedModel(page)).toBe('models/gemini-1.0-pro-vision')
+  })
+
+  test('a saved model without generateContent counts as missing', async ({ page }) => {
+    gemini.respond = listOf(REALISTIC_MODELS)
+    await seedSettings(page, {
+      geminiApiKey: FAKE_KEY,
+      geminiModel: 'models/gemini-embedding-001',
+    })
+    await expect(modelAlert(page)).toHaveText(MISSING_MODEL)
+    await expect(modelSelect(page)).toHaveValue('')
+    expect(await optionLabels(page)).toEqual(STABLE_LABELS)
   })
 })

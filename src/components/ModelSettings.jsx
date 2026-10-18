@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { listModels } from '../lib/gemini.js'
+import { modelChoices, shownModels } from '../lib/models.js'
 import { loadSettings, updateSettings } from '../storage/connection.js'
 
 const QUERY_ERRORS = {
@@ -22,6 +23,7 @@ function findFlashModel(models) {
 export default function ModelSettings({ apiKey }) {
   // status: 'loading' | 'ready' | 'queryError' | 'loadError'
   const [status, setStatus] = useState('loading')
+  // Full list from listModels; what is offered comes from models.js.
   const [models, setModels] = useState([])
   const [errorCode, setErrorCode] = useState('other')
   const [savedModel, setSavedModel] = useState('')
@@ -62,8 +64,9 @@ export default function ModelSettings({ apiKey }) {
 
     // Nothing chosen yet: pick the first Flash model and save it before
     // showing the list, so the select never flashes 請選擇模型 first.
+    // Picked from the shown list only, never from filtered-out models.
     if (!savedModelRef.current) {
-      const flash = findFlashModel(list)
+      const flash = findFlashModel(shownModels(list))
       if (flash) {
         try {
           await updateSettings({ geminiModel: flash.name })
@@ -116,10 +119,12 @@ export default function ModelSettings({ apiKey }) {
     }
   }
 
-  const inList = models.some((model) => model.name === savedModel)
-  // A saved model missing from the list stays stored (decisions.md) but is
-  // not shown as selected, so the user is prompted to pick another one.
-  const selectValue = inList ? savedModel : ''
+  // A saved model hidden by the filter but still available is offered as
+  // an extra option (see modelChoices). One missing from the full list
+  // stays stored (decisions.md) but is not shown as selected, so the user
+  // is prompted to pick another one.
+  const { options, savedUsable } = modelChoices(models, savedModel)
+  const selectValue = savedUsable ? savedModel : ''
 
   return (
     <section className="settings-section" aria-labelledby="settings-model">
@@ -161,7 +166,7 @@ export default function ModelSettings({ apiKey }) {
                   請選擇模型
                 </option>
               )}
-              {models.map((model) => (
+              {options.map((model) => (
                 <option key={model.name} value={model.name}>
                   {model.displayName || model.name}
                 </option>
@@ -169,8 +174,8 @@ export default function ModelSettings({ apiKey }) {
             </select>
           </div>
 
-          {models.length === 0 && <p className="muted">找不到可用的模型。</p>}
-          {savedModel && !inList && (
+          {options.length === 0 && <p className="muted">找不到可用的模型。</p>}
+          {savedModel && !savedUsable && (
             <p className="error" role="alert">
               目前選擇的模型已無法使用，請重新選擇。
             </p>

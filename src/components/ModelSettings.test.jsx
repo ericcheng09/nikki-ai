@@ -12,7 +12,14 @@ vi.mock('../storage/connection.js', () => ({
 const KEY = 'test-key-123'
 const PRO = { name: 'models/gemini-2.5-pro', displayName: 'Gemini 2.5 Pro' }
 const FLASH = { name: 'models/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' }
-const LITE = { name: 'models/gemini-2.0-FLASH-lite', displayName: '' }
+const LITE = { name: 'models/gemini-2.0-flash-lite', displayName: '' }
+// Not stable main text models: hidden unless nothing else is available.
+const FLASH_PREVIEW = {
+  name: 'models/gemini-2.5-flash-preview-05-20',
+  displayName: 'Gemini 2.5 Flash Preview',
+}
+const EXP = { name: 'models/gemini-exp-1206', displayName: 'Gemini Experimental' }
+const UPPER_FLASH = { name: 'models/gemini-2.5-FLASH-preview', displayName: '' }
 
 function withModel(geminiModel) {
   vi.mocked(loadSettings).mockResolvedValue({ geminiApiKey: KEY, geminiModel })
@@ -68,7 +75,7 @@ describe('ModelSettings', () => {
     render(<ModelSettings apiKey={KEY} />)
     const select = await screen.findByLabelText('模型')
     const options = Array.from(select.options).map((o) => o.textContent)
-    expect(options).toEqual(['Gemini 2.5 Pro', 'models/gemini-2.0-FLASH-lite'])
+    expect(options).toEqual(['Gemini 2.5 Pro', 'models/gemini-2.0-flash-lite'])
     expect(select).toHaveValue(PRO.name)
     expect(updateSettings).not.toHaveBeenCalled()
   })
@@ -83,10 +90,56 @@ describe('ModelSettings', () => {
   })
 
   it('matches flash case-insensitively', async () => {
-    vi.mocked(listModels).mockResolvedValue([PRO, LITE])
+    // Only reachable through the fallback list (no main text model).
+    vi.mocked(listModels).mockResolvedValue([EXP, UPPER_FLASH])
     render(<ModelSettings apiKey={KEY} />)
-    expect(await screen.findByLabelText('模型')).toHaveValue(LITE.name)
-    expect(updateSettings).toHaveBeenCalledWith({ geminiModel: LITE.name })
+    expect(await screen.findByLabelText('模型')).toHaveValue(UPPER_FLASH.name)
+    expect(updateSettings).toHaveBeenCalledWith({ geminiModel: UPPER_FLASH.name })
+  })
+
+  it('lists only stable main text models', async () => {
+    withModel(PRO.name)
+    vi.mocked(listModels).mockResolvedValue([FLASH_PREVIEW, PRO, EXP, FLASH])
+    render(<ModelSettings apiKey={KEY} />)
+    const select = await screen.findByLabelText('模型')
+    expect(Array.from(select.options).map((o) => o.value)).toEqual([PRO.name, FLASH.name])
+  })
+
+  it('never auto-selects a hidden model', async () => {
+    vi.mocked(listModels).mockResolvedValue([FLASH_PREVIEW, PRO])
+    render(<ModelSettings apiKey={KEY} />)
+    const select = await screen.findByLabelText('模型')
+    expect(select).toHaveValue('')
+    expect(updateSettings).not.toHaveBeenCalled()
+  })
+
+  it('lists every model when no stable main text model is available', async () => {
+    vi.mocked(listModels).mockResolvedValue([EXP, FLASH_PREVIEW])
+    render(<ModelSettings apiKey={KEY} />)
+    const select = await screen.findByLabelText('模型')
+    expect(Array.from(select.options).map((o) => o.value)).toEqual([EXP.name, FLASH_PREVIEW.name])
+    // Auto-selection works on the shown (fallback) list.
+    expect(select).toHaveValue(FLASH_PREVIEW.name)
+    expect(updateSettings).toHaveBeenCalledWith({ geminiModel: FLASH_PREVIEW.name })
+  })
+
+  it('keeps a saved hidden model selectable, without a warning', async () => {
+    withModel(FLASH_PREVIEW.name)
+    vi.mocked(listModels).mockResolvedValue([FLASH_PREVIEW, PRO, FLASH])
+    render(<ModelSettings apiKey={KEY} />)
+    const select = await screen.findByLabelText('模型')
+    expect(Array.from(select.options).map((o) => o.value)).toEqual([
+      PRO.name,
+      FLASH.name,
+      FLASH_PREVIEW.name,
+    ])
+    expect(select).toHaveValue(FLASH_PREVIEW.name)
+    expect(screen.queryByText(/已無法使用/)).not.toBeInTheDocument()
+    expect(updateSettings).not.toHaveBeenCalled()
+    // After switching away, the hidden model is no longer offered.
+    fireEvent.change(select, { target: { value: FLASH.name } })
+    expect(await screen.findByText('已儲存')).toBeInTheDocument()
+    expect(Array.from(select.options).map((o) => o.value)).toEqual([PRO.name, FLASH.name])
   })
 
   it('selects nothing and asks the user to choose when no flash model exists', async () => {

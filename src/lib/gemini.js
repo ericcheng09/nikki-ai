@@ -124,6 +124,8 @@ function isUsableModel(model) {
 // Lists the Gemini models the key can use for generateContent, in API
 // order, as [{ name, displayName }]. `name` is the full resource name
 // (e.g. "models/gemini-2.5-flash") and is what gets stored as geminiModel.
+// This is the full list; which of them the settings page offers is
+// decided in models.js.
 export async function listModels(apiKey, { fetchImpl = globalThis.fetch } = {}) {
   const models = []
   const seenTokens = new Set()
