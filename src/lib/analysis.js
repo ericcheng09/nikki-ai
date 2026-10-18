@@ -3,7 +3,7 @@
 // Validation happens before anything is stored or shown, and the result
 // is plain text only: it is rendered as text nodes, never as HTML
 // (spec 5.4).
-import { GeminiError } from './gemini.js'
+import { GeminiError } from './geminiError.js'
 
 function deepFreeze(value) {
   if (value && typeof value === 'object') {
