@@ -58,7 +58,7 @@ export default function WelcomePage() {
             AI 批改：在日記頁按「AI 批改」，AI 會找出文法錯誤和不通順的句子，推薦更道地的說法，並附上修改後的全文和中文翻譯。批改結果只顯示在日記旁邊，不會改動你的日記。
           </li>
           <li>
-            使用前準備：AI 批改需要你自己的 Gemini API key，可以免費申請。從主畫面右上角的「選單」→「設定」貼上 key，App 會自動幫你選好模型。key 只會存在這個瀏覽器，只用來呼叫 Gemini。
+            使用前準備：AI 批改需要你自己的 Gemini API key，可以免費申請。從主畫面右上角的「選單」→「設定」貼上 key，App 通常會自動幫你選好模型。key 只會存在這個瀏覽器，只用來呼叫 Gemini。
           </li>
         </ul>
       </section>
