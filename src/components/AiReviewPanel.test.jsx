@@ -460,3 +460,30 @@ describe('result', () => {
     expect(document.querySelector('img')).toBeNull()
   })
 })
+
+describe('keyboard scrolling', () => {
+  afterEach(() => {
+    delete window.matchMedia
+  })
+
+  function mockWideLayout(matches) {
+    window.matchMedia = vi.fn(() => ({
+      matches,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }))
+  }
+
+  it('makes the panel focusable in the side-by-side layout, where it scrolls itself', async () => {
+    mockWideLayout(true)
+    await renderEditor(existing)
+    expect(window.matchMedia).toHaveBeenCalledWith('(min-width: 768px)')
+    expect(resultRegion()).toHaveAttribute('tabindex', '0')
+  })
+
+  it('adds no tab stop on narrow screens, where the page scrolls', async () => {
+    mockWideLayout(false)
+    await renderEditor(existing)
+    expect(resultRegion()).not.toHaveAttribute('tabindex')
+  })
+})

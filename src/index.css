@@ -17,6 +17,16 @@ body {
   /* Content width shared by the top bar and the page; the entry page with
      the AI panel widens it (see the media query further down). */
   --page-width: 720px;
+  /* Height of the sticky top bar: 40px buttons + 2 x 8px padding + 1px
+     border. Used by the bar itself (min-height) and by everything that
+     must stay clear of it. */
+  --top-bar-height: 57px;
+}
+
+/* Elements focused or scrolled into view (anchors, tab focus) stop below
+   the sticky top bar instead of under it. */
+html {
+  scroll-padding-top: var(--top-bar-height);
 }
 
 .app {
@@ -33,6 +43,8 @@ body {
   z-index: 20;
   background: #fafafa;
   border-bottom: 1px solid #e3e3e3;
+  /* Never shorter than --top-bar-height, which other rules rely on. */
+  min-height: var(--top-bar-height);
 }
 
 .app-bar-inner {
@@ -289,8 +301,30 @@ body {
     align-items: start;
   }
 
+  /* The panel stays in view while the diary column scrolls (decisions.md
+     畫面): it sticks just below the top bar (with the page's 16px gap),
+     is at most as tall as the rest of the viewport (16px bottom margin)
+     and scrolls its own content. 100vh is the fallback for browsers
+     without dvh, which also accounts for mobile browser toolbars. */
   .entry-layout > .ai-review {
+    --panel-top: calc(var(--top-bar-height) + 16px);
     margin-top: 0;
+    position: sticky;
+    top: var(--panel-top);
+    max-height: calc(100vh - var(--panel-top) - 16px);
+    max-height: calc(100dvh - var(--panel-top) - 16px);
+    overflow-y: auto;
+  }
+
+  /* A flex column with a max-height would otherwise squeeze its children
+     instead of letting the panel scroll. */
+  .entry-layout > .ai-review > * {
+    flex-shrink: 0;
+  }
+
+  .entry-layout > .ai-review:focus-visible {
+    outline: 2px solid #2f6fde;
+    outline-offset: 2px;
   }
 }
 

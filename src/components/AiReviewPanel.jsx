@@ -5,6 +5,7 @@ import { validateAnalysis } from '../lib/analysis.js'
 import { formatLocalDateTime } from '../lib/diary.js'
 import { GeminiError, generateAnalysis, geminiErrorMessage } from '../lib/gemini.js'
 import { loadSettings, saveEntryAnalysis } from '../storage/connection.js'
+import useMediaQuery, { WIDE_LAYOUT_QUERY } from '../lib/useMediaQuery.js'
 
 // Error codes whose fix is on the settings page; their message gets a
 // link there.
@@ -59,6 +60,11 @@ export default function AiReviewPanel({ entry, hasUnsavedChanges, onAnalyzed }) 
   const [failure, setFailure] = useState(null)
   const mountedRef = useRef(false)
   const headingId = useId()
+  // From 768px the panel is a sticky box that scrolls on its own
+  // (index.css). Its text has no focusable elements, so the box itself
+  // takes focus there to be scrollable by keyboard; on narrow screens the
+  // page scrolls and an extra tab stop would only get in the way.
+  const isScrollBox = useMediaQuery(WIDE_LAYOUT_QUERY)
 
   useEffect(() => {
     mountedRef.current = true
@@ -98,7 +104,11 @@ export default function AiReviewPanel({ entry, hasUnsavedChanges, onAnalyzed }) 
   const analyzedAt = analysis ? formatLocalDateTime(analysis.analyzedAt) : ''
 
   return (
-    <section className="ai-review" aria-labelledby={headingId}>
+    <section
+      className="ai-review"
+      aria-labelledby={headingId}
+      tabIndex={isScrollBox ? 0 : undefined}
+    >
       <div className="toolbar">
         <h2 id={headingId}>AI 批改結果</h2>
         <button type="button" className="button" onClick={handleReview} disabled={busy}>

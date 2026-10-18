@@ -142,7 +142,7 @@ test.describe('entry page layout', () => {
     await expectSideBySide(page)
   })
 
-  test('DOM and tab order stay form, then panel', async ({ page }) => {
+  test('DOM and tab order stay form, then panel (side by side)', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 })
     await seedEntry(page)
     await openEntry(page)
@@ -152,7 +152,20 @@ test.describe('entry page layout', () => {
       return Boolean(f.compareDocumentPosition(p) & Node.DOCUMENT_POSITION_FOLLOWING)
     })
     expect(formFirst).toBe(true)
-    // The last form control (刪除) is followed by the AI 批改 button.
+    // The last form control (刪除) is followed by the panel itself (a
+    // focusable scroll box from 768px), then its AI 批改 button.
+    await form(page).getByRole('button', { name: '刪除' }).focus()
+    await page.keyboard.press('Tab')
+    await expect(panel(page)).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(panel(page).getByRole('button', { name: 'AI 批改', exact: true })).toBeFocused()
+  })
+
+  test('tab order stays form, then panel button (stacked)', async ({ page }) => {
+    await page.setViewportSize({ width: 767, height: 900 })
+    await seedEntry(page)
+    await openEntry(page)
+    // No extra tab stop on the panel below 768px.
     await form(page).getByRole('button', { name: '刪除' }).focus()
     await page.keyboard.press('Tab')
     await expect(panel(page).getByRole('button', { name: 'AI 批改', exact: true })).toBeFocused()
