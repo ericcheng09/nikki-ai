@@ -1,14 +1,8 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { modelChoices, shownModels } from '../lib/models.js'
+import { modelChoices, pickDefaultModel, shownModels } from '../lib/models.js'
 import { loadSettings, updateSettings } from '../storage/connection.js'
 
 const SAVE_ERROR = '無法儲存設定，請重新整理頁面後再試一次。'
-
-// First model whose name mentions "flash" (fast and cheap enough for
-// diary feedback), or undefined when there is none (decisions.md).
-function findFlashModel(models) {
-  return models.find((model) => model.name.toLowerCase().includes('flash'))
-}
 
 // Gemini model section of the settings page (spec 3.6, decisions.md
 // Phase 2 「Gemini 模型」). It does not query Gemini itself: `query` is the
@@ -57,14 +51,15 @@ export default function ModelSettings({ query }) {
   const list = query.status === 'success' ? query.models : null
 
   // Once both the list and the saved model are known: nothing chosen yet
-  // means pick the first Flash model of the shown list (never a
-  // filtered-out one) and save it before showing the select.
+  // means pick the newest Flash model of the shown list (never a
+  // filtered-out one; see pickDefaultModel) and save it before showing
+  // the select.
   useEffect(() => {
     if (!list || settingsStatus !== 'ready') return undefined
     let active = true
     async function prepare() {
       if (!savedModelRef.current) {
-        const flash = findFlashModel(shownModels(list))
+        const flash = pickDefaultModel(shownModels(list))
         if (flash) {
           try {
             await updateSettings({ geminiModel: flash.name })

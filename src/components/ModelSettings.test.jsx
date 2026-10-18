@@ -96,7 +96,18 @@ describe('ModelSettings', () => {
     expect(updateSettings).not.toHaveBeenCalled()
   })
 
-  it('auto-selects and saves the first flash model when none is chosen', async () => {
+  it('auto-selects the newest stable Flash model, not the first in API order', async () => {
+    const OLD_FLASH = { name: 'models/gemini-2.0-flash-001', displayName: 'Gemini 2.0 Flash 001' }
+    const NEW_LITE = { name: 'models/gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash-Lite' }
+    vi.mocked(listModels).mockResolvedValue([PRO, OLD_FLASH, NEW_LITE, FLASH])
+    render(<Harness />)
+    const select = await screen.findByLabelText('模型')
+    expect(select).toHaveValue(FLASH.name)
+    expect(updateSettings).toHaveBeenCalledTimes(1)
+    expect(updateSettings).toHaveBeenCalledWith({ geminiModel: FLASH.name })
+  })
+
+  it('auto-selects and saves the newest flash model when none is chosen', async () => {
     vi.mocked(listModels).mockResolvedValue([PRO, FLASH, LITE])
     render(<Harness />)
     const select = await screen.findByLabelText('模型')

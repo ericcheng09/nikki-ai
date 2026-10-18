@@ -1,4 +1,4 @@
-import { isMainTextModel, modelChoices, shownModels } from './models.js'
+import { isMainTextModel, modelChoices, pickDefaultModel, shownModels } from './models.js'
 
 const model = (id, displayName = '') => ({ name: `models/${id}`, displayName })
 
@@ -136,5 +136,71 @@ describe('modelChoices', () => {
       options: previews,
       savedUsable: true,
     })
+  })
+})
+
+describe('pickDefaultModel', () => {
+  const names = (...ids) => ids.map((id) => model(id))
+  const pick = (...ids) => pickDefaultModel(names(...ids))?.name
+
+  it.each([
+    [['gemini-2.0-flash-001', 'gemini-2.5-flash'], 'gemini-2.5-flash'],
+    [['gemini-2.0-flash', 'gemini-2.5-flash-lite'], 'gemini-2.5-flash-lite'],
+    [['gemini-2.5-flash-lite', 'gemini-2.5-flash'], 'gemini-2.5-flash'],
+    [['gemini-2.5-flash-002', 'gemini-2.5-flash'], 'gemini-2.5-flash'],
+    [['gemini-2.5-flash', 'gemini-3-flash'], 'gemini-3-flash'],
+    // Missing minor counts as 0: 3 == 3.0, 3.1 is newer.
+    [['gemini-3-flash', 'gemini-3.1-flash'], 'gemini-3.1-flash'],
+    // Minor compared as a number, not as text.
+    [['gemini-2.10-flash', 'gemini-2.9-flash'], 'gemini-2.10-flash'],
+    [['gemini-10-flash', 'gemini-9.9-flash'], 'gemini-10-flash'],
+    // Same version and kind, both pinned: higher revision first.
+    [['gemini-2.0-flash-001', 'gemini-2.0-flash-002'], 'gemini-2.0-flash-002'],
+    // flash before flash-lite even when the lite one has no revision.
+    [['gemini-2.0-flash-lite', 'gemini-2.0-flash-001'], 'gemini-2.0-flash-001'],
+    // Pro is never a Flash candidate, however new.
+    [['gemini-3-pro', 'gemini-2.0-flash-lite-001'], 'gemini-2.0-flash-lite-001'],
+  ])('picks from %j: %s', (ids, expected) => {
+    expect(pick(...ids)).toBe(`models/${expected}`)
+  })
+
+  it('handles a realistic API list', () => {
+    expect(
+      pick(
+        'gemini-2.5-pro',
+        'gemini-2.0-flash',
+        'gemini-2.0-flash-001',
+        'gemini-2.0-flash-lite',
+        'gemini-2.0-flash-lite-001',
+        'gemini-2.5-flash',
+        'gemini-2.5-flash-lite',
+      ),
+    ).toBe('models/gemini-2.5-flash')
+  })
+
+  it('keeps API order for exact duplicates', () => {
+    const first = model('gemini-2.5-flash', 'first')
+    const second = model('gemini-2.5-flash', 'second')
+    expect(pickDefaultModel([first, second])).toBe(first)
+  })
+
+  it('falls back to the first name containing flash, case-insensitively', () => {
+    // e.g. the fallback list when no stable model is available
+    expect(pick('gemini-exp-1206', 'gemini-2.5-FLASH-preview', 'gemini-2.5-flash-preview-05-20')).toBe(
+      'models/gemini-2.5-FLASH-preview',
+    )
+  })
+
+  it('returns undefined without any flash model', () => {
+    expect(pick('gemini-2.5-pro', 'gemini-exp-1206')).toBeUndefined()
+    expect(pickDefaultModel([])).toBeUndefined()
+    expect(pickDefaultModel(undefined)).toBeUndefined()
+  })
+
+  it('does not mutate the input list', () => {
+    const list = names('gemini-2.0-flash', 'gemini-2.5-flash')
+    const copy = [...list]
+    pickDefaultModel(list)
+    expect(list).toEqual(copy)
   })
 })

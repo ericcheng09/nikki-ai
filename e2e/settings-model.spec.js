@@ -419,17 +419,17 @@ async function seedSettings(page, settings) {
 }
 
 test.describe('settings: Gemini model filter', () => {
-  test('lists only stable main text models in API order; auto-picks a stable Flash', async ({
+  test('lists only stable main text models in API order; auto-picks the newest stable Flash', async ({
     page,
   }) => {
     gemini.respond = listOf(REALISTIC_MODELS)
     await openSettings(page)
     await saveKey(page)
-    // The first stable Flash in API order (gemini-2.0-flash-001), not the
-    // earlier preview, -exp or -latest Flash entries.
-    await expect(modelSelect(page)).toHaveValue('models/gemini-2.0-flash-001')
+    // The newest stable Flash (gemini-2.5-flash), not the earlier
+    // gemini-2.0-flash-001 nor any preview, -exp or -latest Flash entry.
+    await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-flash')
     await expect.poll(() => optionLabels(page)).toEqual(STABLE_LABELS)
-    await expect.poll(() => storedModel(page)).toBe('models/gemini-2.0-flash-001')
+    await expect.poll(() => storedModel(page)).toBe('models/gemini-2.5-flash')
     await expect(modelAlert(page)).toHaveCount(0)
     await expect(modelSection(page).getByText('找不到可用的模型。')).toHaveCount(0)
   })
@@ -505,5 +505,132 @@ test.describe('settings: Gemini model filter', () => {
     await expect(modelAlert(page)).toHaveText(MISSING_MODEL)
     await expect(modelSelect(page)).toHaveValue('')
     await expect.poll(() => optionLabels(page)).toEqual(STABLE_LABELS)
+  })
+})
+
+// --- Phase 2 F8: auto-select the newest stable Flash -----------------------
+// Only when no model is saved. Among shown stable Flash / Flash-Lite
+// models: newest version first; same version Flash before Flash-Lite;
+// unpinned before -NNN; higher -NNN; then API order. Otherwise the first
+// name containing "flash"; otherwise nothing (請選擇模型).
+
+test.describe('settings: default model choice', () => {
+  const cases = [
+    {
+      title: 'newest version wins over API order',
+      list: [
+        model('models/gemini-2.0-flash-001', 'Gemini 2.0 Flash 001'),
+        model('models/gemini-2.5-flash', 'Gemini 2.5 Flash'),
+        model('models/gemini-2.5-flash-lite', 'Gemini 2.5 Flash-Lite'),
+      ],
+      pick: 'models/gemini-2.5-flash',
+    },
+    {
+      title: 'a newer Flash-Lite beats an older Flash',
+      list: [
+        model('models/gemini-2.0-flash', 'Gemini 2.0 Flash'),
+        model('models/gemini-2.5-flash-lite', 'Gemini 2.5 Flash-Lite'),
+      ],
+      pick: 'models/gemini-2.5-flash-lite',
+    },
+    {
+      title: 'same version: Flash before Flash-Lite, unpinned before -NNN, then higher -NNN',
+      list: [
+        model('models/gemini-2.5-pro', 'Gemini 2.5 Pro'),
+        model('models/gemini-2.5-flash-lite', 'Gemini 2.5 Flash-Lite'),
+        model('models/gemini-2.5-flash-001', 'Gemini 2.5 Flash 001'),
+        model('models/gemini-2.5-flash-002', 'Gemini 2.5 Flash 002'),
+        model('models/gemini-2.5-flash', 'Gemini 2.5 Flash'),
+      ],
+      pick: 'models/gemini-2.5-flash',
+    },
+    {
+      title: 'pinned revisions only: the higher -NNN',
+      list: [
+        model('models/gemini-2.5-flash-001', 'Gemini 2.5 Flash 001'),
+        model('models/gemini-2.5-flash-002', 'Gemini 2.5 Flash 002'),
+        model('models/gemini-2.5-flash-lite', 'Gemini 2.5 Flash-Lite'),
+      ],
+      pick: 'models/gemini-2.5-flash-002',
+    },
+    {
+      title: 'major-only versions compare numerically (3 > 2.5, 10 > 9)',
+      list: [
+        model('models/gemini-2.5-flash', 'Gemini 2.5 Flash'),
+        model('models/gemini-9-flash', 'Gemini 9 Flash'),
+        model('models/gemini-10-flash', 'Gemini 10 Flash'),
+        model('models/gemini-3-flash', 'Gemini 3 Flash'),
+      ],
+      pick: 'models/gemini-10-flash',
+    },
+    {
+      title: 'previews only (fallback list): the first name containing flash',
+      list: [
+        model('models/gemini-3-pro-preview', 'Gemini 3 Pro Preview'),
+        model('models/gemini-2.5-flash-preview-05-20', 'Gemini 2.5 Flash Preview'),
+        model('models/gemini-3-flash-preview', 'Gemini 3 Flash Preview'),
+      ],
+      pick: 'models/gemini-2.5-flash-preview-05-20',
+    },
+  ]
+
+  for (const { title, list, pick } of cases) {
+    test(`no saved model: ${title}`, async ({ page }) => {
+      gemini.respond = listOf(list)
+      await openSettings(page)
+      await saveKey(page)
+      await expect(modelSelect(page)).toHaveValue(pick)
+      await expect.poll(() => storedModel(page)).toBe(pick)
+      // Options keep API order: every model here is shown (stable, or the
+      // previews-only fallback list).
+      await expect.poll(() => optionLabels(page)).toEqual(list.map((m) => m.displayName))
+      await expect(modelAlert(page)).toHaveCount(0)
+    })
+  }
+
+  test('no Flash at all: nothing is picked, 請選擇模型', async ({ page }) => {
+    gemini.respond = listOf([
+      model('models/gemini-2.5-pro', 'Gemini 2.5 Pro'),
+      model('models/gemini-3-pro', 'Gemini 3 Pro'),
+    ])
+    await openSettings(page)
+    await saveKey(page)
+    await expect.poll(() => optionLabels(page)).toEqual(['Gemini 2.5 Pro', 'Gemini 3 Pro'])
+    await expect(modelSelect(page)).toHaveValue('')
+    await expect(modelSelect(page).locator('option:checked')).toHaveText('請選擇模型')
+    await page.waitForLoadState('networkidle')
+    expect((await storedModel(page)) ?? '').toBe('')
+  })
+
+  test('a saved model is never replaced by the default choice', async ({ page }) => {
+    const list = [
+      model('models/gemini-2.0-flash-001', 'Gemini 2.0 Flash 001'),
+      model('models/gemini-2.5-pro', 'Gemini 2.5 Pro'),
+      model('models/gemini-2.5-flash', 'Gemini 2.5 Flash'),
+    ]
+    gemini.respond = listOf(list)
+    // An older Flash saved earlier stays selected.
+    await seedSettings(page, { geminiApiKey: FAKE_KEY, geminiModel: 'models/gemini-2.0-flash-001' })
+    await expect(modelSelect(page)).toHaveValue('models/gemini-2.0-flash-001')
+    await page.waitForLoadState('networkidle')
+    expect(await storedModel(page)).toBe('models/gemini-2.0-flash-001')
+
+    // So does a non-Flash choice, across saving the key again.
+    await modelSelect(page).selectOption('models/gemini-2.5-pro')
+    await expect(modelNotice(page)).toHaveText('已儲存')
+    await saveKey(page)
+    await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-pro')
+    await page.reload()
+    await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-pro')
+    await page.waitForLoadState('networkidle')
+    expect(await storedModel(page)).toBe('models/gemini-2.5-pro')
+
+    // A saved model missing from the list is not replaced either.
+    await writeStore(page, 'settings', { geminiModel: 'models/gemini-1.0-pro' })
+    await page.reload()
+    await expect(modelAlert(page)).toHaveText(MISSING_MODEL)
+    await expect(modelSelect(page)).toHaveValue('')
+    await page.waitForLoadState('networkidle')
+    expect(await storedModel(page)).toBe('models/gemini-1.0-pro')
   })
 })
