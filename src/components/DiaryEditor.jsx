@@ -1,14 +1,15 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import AiReviewPanel from './AiReviewPanel.jsx'
+import LanguageField from './LanguageField.jsx'
 import {
   createEntry,
   getLocalDateString,
   isAfterToday,
   isBlank,
-  updateEntry,
 } from '../lib/diary.js'
+import { entryLanguage, hasUnsavedChanges } from '../lib/editorForm.js'
 import {
-  AUTO_LANGUAGE,
   OTHER_OPTION_VALUE,
   addLanguage,
   languageOptions,
@@ -19,12 +20,8 @@ import {
   loadSettings,
   saveEntry,
   saveEntryAddingLanguage,
+  saveEntryEdit,
 } from '../storage/connection.js'
-
-// Stored language of an entry; missing or invalid values count as auto.
-function entryLanguage(entry) {
-  return resolveLanguageInput(entry?.language)?.language ?? AUTO_LANGUAGE
-}
 
 // One form for both modes:
 // - no `entry` prop: create a new entry, then go to its page
@@ -43,8 +40,6 @@ export default function DiaryEditor({ entry }) {
   // If loading fails it stays empty: built-ins and 其他 still work, and the
   // list itself is updated inside the save transaction, never from here.
   const [customLanguages, setCustomLanguages] = useState([])
-  const otherInputId = useId()
-  const languageSelectId = useId()
   // Languages this editor added through a save. A list load that finishes
   // after such a save may predate it, so these are re-applied on top of
   // the loaded list instead of being lost.
@@ -79,6 +74,20 @@ export default function DiaryEditor({ entry }) {
   // The saved entry's own language is passed so an entry whose custom
   // language was deleted from the list still shows and keeps it.
   const options = languageOptions(customLanguages, entryLanguage(saved))
+
+  // AI review only sends the saved version; see editorForm.js.
+  const unsaved = isEdit && hasUnsavedChanges(saved, { date, content, language, otherLanguage })
+
+  // A finished review only refreshes the stored analysis in memory; the
+  // user's in-progress edits are separate state and stay untouched.
+  function handleAnalyzed(record) {
+    setSaved((current) => ({
+      ...current,
+      analysis: record.analysis,
+      // Keep whichever is newer; timestamps are fixed-width ISO strings.
+      updatedAt: record.updatedAt > current.updatedAt ? record.updatedAt : current.updatedAt,
+    }))
+  }
 
   function lock() {
     if (busyRef.current) return false
@@ -135,14 +144,24 @@ export default function DiaryEditor({ entry }) {
     }
     if (!lock()) return
     clearMessages()
-    // Built-in / auto / existing names need no list update.
-    const persist = (record) =>
-      languageToAdd ? saveEntryAddingLanguage(record, languageToAdd) : saveEntry(record)
     try {
       if (isEdit) {
-        const updated = updateEntry(saved, { date, content, language: chosenLanguage })
-        await persist(updated)
-        setSaved(updated)
+        // Merged onto the stored record inside the transaction, so an AI
+        // analysis written while this form held an older copy is kept;
+        // the written record (with that analysis) becomes the saved one.
+        const written = await saveEntryEdit(
+          saved,
+          { date, content, language: chosenLanguage },
+          languageToAdd,
+        )
+        // Deleted (e.g. in another tab) or gone: storage refused to bring
+        // it back. Keep everything typed so the user can copy it.
+        if (!written) {
+          setError('這篇日記已被刪除，無法儲存。')
+          unlock()
+          return
+        }
+        setSaved(written)
         if (languageToAdd) {
           // Mirror the stored change locally so the new language shows as
           // a normal option and stays selected.
@@ -156,7 +175,10 @@ export default function DiaryEditor({ entry }) {
       } else {
         // Content is stored exactly as typed.
         const created = createEntry({ date, content, language: chosenLanguage })
-        await persist(created)
+        // Built-in / auto / existing names need no list update.
+        await (languageToAdd
+          ? saveEntryAddingLanguage(created, languageToAdd)
+          : saveEntry(created))
         // replace: the back button should not return to an empty new form.
         navigate(`/entry/${created.id}`, { replace: true })
       }
@@ -182,97 +204,87 @@ export default function DiaryEditor({ entry }) {
   }
 
   return (
-    <form className="diary-editor" onSubmit={handleSubmit} noValidate>
-      <h2>{isEdit ? '編輯日記' : '新增日記'}</h2>
+    <>
+      <form className="diary-editor" onSubmit={handleSubmit} noValidate>
+        <h2>{isEdit ? '編輯日記' : '新增日記'}</h2>
 
-      <label className="field">
-        <span>日期</span>
-        <input
-          type="date"
-          // Latest selectable date is today (local); recomputed on render.
-          max={getLocalDateString()}
-          value={date}
-          onChange={(event) => {
-            setDate(event.target.value)
-            clearMessages()
-          }}
-        />
-      </label>
-
-      <div className="field">
-        <label htmlFor={languageSelectId}>語言</label>
-        <select
-          id={languageSelectId}
-          value={language}
-          onChange={(event) => {
-            setLanguage(event.target.value)
-            clearMessages()
-          }}
-        >
-          {options.map((option) => (
-            <option key={`${option.kind}:${option.value}`} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {language === OTHER_OPTION_VALUE && (
-        <div className="field">
-          <label htmlFor={otherInputId}>語言名稱</label>
+        <label className="field">
+          <span>日期</span>
           <input
-            id={otherInputId}
-            type="text"
-            value={otherLanguage}
-            placeholder="例如：韓文"
+            type="date"
+            // Latest selectable date is today (local); recomputed on render.
+            max={getLocalDateString()}
+            value={date}
             onChange={(event) => {
-              setOtherLanguage(event.target.value)
+              setDate(event.target.value)
               clearMessages()
             }}
           />
-        </div>
-      )}
+        </label>
 
-      <label className="field">
-        <span>內容</span>
-        <textarea
-          rows={12}
-          value={content}
-          onChange={(event) => {
-            setContent(event.target.value)
+        <LanguageField
+          options={options}
+          value={language}
+          otherValue={otherLanguage}
+          onChange={(value) => {
+            setLanguage(value)
             clearMessages()
           }}
-          placeholder="用你正在學的外語寫下今天的事…"
+          onOtherChange={(value) => {
+            setOtherLanguage(value)
+            clearMessages()
+          }}
         />
-      </label>
 
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-      {/* Always rendered so screen readers announce text changes in this
-          live region; only its content changes. */}
-      <p className="success" role="status">
-        {notice}
-      </p>
+        <label className="field">
+          <span>內容</span>
+          <textarea
+            rows={12}
+            value={content}
+            onChange={(event) => {
+              setContent(event.target.value)
+              clearMessages()
+            }}
+            placeholder="用你正在學的外語寫下今天的事…"
+          />
+        </label>
 
-      <div className="actions">
-        <button type="submit" className="button" disabled={busy}>
-          儲存
-        </button>
-        {isEdit && (
-          <button
-            type="button"
-            className="button button-danger"
-            onClick={handleDelete}
-            disabled={busy}
-          >
-            刪除
-          </button>
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
         )}
-        <Link to="/">{isEdit ? '返回列表' : '取消'}</Link>
-      </div>
-    </form>
+        {/* Always rendered so screen readers announce text changes in this
+            live region; only its content changes. */}
+        <p className="success" role="status">
+          {notice}
+        </p>
+
+        <div className="actions">
+          <button type="submit" className="button" disabled={busy}>
+            儲存
+          </button>
+          {isEdit && (
+            <button
+              type="button"
+              className="button button-danger"
+              onClick={handleDelete}
+              disabled={busy}
+            >
+              刪除
+            </button>
+          )}
+          <Link to="/">{isEdit ? '返回列表' : '取消'}</Link>
+        </div>
+      </form>
+      {/* Only saved entries can be reviewed; /entry/new has no panel. */}
+      {isEdit && (
+        <AiReviewPanel
+          entry={saved}
+          hasUnsavedChanges={unsaved}
+          onAnalyzed={handleAnalyzed}
+        />
+      )}
+    </>
   )
 }

@@ -7,6 +7,8 @@ import {
   getAllEntries,
   putEntry,
   putEntryAddingLanguage,
+  putEntryAnalysis,
+  putEntryEdit,
   removeCustomLanguage,
   getSettings,
   saveSettings,
@@ -49,6 +51,23 @@ export async function saveEntry(entry) {
 // language list in the same transaction; see putEntryAddingLanguage.
 export async function saveEntryAddingLanguage(entry, language) {
   await putEntryAddingLanguage(await getDb(), entry, language)
+}
+
+// Saves an edit of an existing entry: date, content and language from
+// `changes` are merged onto the currently stored record, so an analysis
+// written meanwhile is kept. `languageToAdd` (typed via 「其他」) is added
+// to the custom list in the same transaction. Resolves with the written
+// record, or null when the entry is missing or deleted (nothing is
+// written); see putEntryEdit.
+export async function saveEntryEdit(base, changes, languageToAdd) {
+  return putEntryEdit(await getDb(), base, changes, { languageToAdd })
+}
+
+// Stores an AI analysis on entry `id` without touching its other fields.
+// Resolves with the written record, or null when the entry is missing or
+// deleted (the result is discarded); see putEntryAnalysis.
+export async function saveEntryAnalysis(id, analysis) {
+  return putEntryAnalysis(await getDb(), id, analysis)
 }
 
 // Returns the stored record for `id` as-is (it may be a soft-delete

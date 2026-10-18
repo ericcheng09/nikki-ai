@@ -6,13 +6,16 @@ import {
   loadSettings,
   saveEntry,
   saveEntryAddingLanguage,
+  saveEntryEdit,
 } from '../storage/connection.js'
-import { getLocalDateString } from '../lib/diary.js'
+import { getLocalDateString, updateEntry } from '../lib/diary.js'
 
 vi.mock('../storage/connection.js', () => ({
   loadSettings: vi.fn(),
   saveEntry: vi.fn(),
   saveEntryAddingLanguage: vi.fn(),
+  saveEntryEdit: vi.fn(),
+  saveEntryAnalysis: vi.fn(),
   deleteEntry: vi.fn(),
 }))
 
@@ -66,7 +69,17 @@ function deferred() {
 // "Today" is fixed so date-limit checks are deterministic. Only Date is
 // faked; real timers keep Testing Library's async helpers working.
 const TODAY = '2026-10-25'
+// Records written by edit-mode saves (saveEntryEdit), in call order. The
+// mock merges the changes like the real storage would on an unchanged
+// stored record.
+let editWrites
 beforeEach(() => {
+  editWrites = []
+  vi.mocked(saveEntryEdit).mockImplementation(async (base, changes) => {
+    const record = updateEntry(base, changes)
+    editWrites.push(record)
+    return record
+  })
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date(2026, 9, 25, 12, 0, 0))
   vi.mocked(loadSettings).mockResolvedValue({ customLanguages: [] })
@@ -78,6 +91,7 @@ afterEach(() => {
   vi.mocked(deleteEntry).mockReset()
   vi.mocked(loadSettings).mockReset()
   vi.mocked(saveEntryAddingLanguage).mockReset()
+  vi.mocked(saveEntryEdit).mockReset()
   vi.restoreAllMocks()
 })
 
@@ -197,7 +211,7 @@ describe('DiaryEditor (edit entry)', () => {
     await waitFor(() =>
       expect(screen.getByRole('status')).toHaveTextContent('已儲存'),
     )
-    const saved = vi.mocked(saveEntry).mock.calls[0][0]
+    const saved = editWrites[0]
     expect(saved).toMatchObject({
       id: 'entry-1',
       createdAt: existing.createdAt,
@@ -220,7 +234,7 @@ describe('DiaryEditor (edit entry)', () => {
     fireEvent.click(saveButton())
     await screen.findByText('已儲存')
 
-    const second = vi.mocked(saveEntry).mock.calls[1][0]
+    const second = editWrites[1]
     expect(second).toMatchObject({ content: 'First edit', date: '2026-10-20' })
   })
 
@@ -240,7 +254,7 @@ describe('DiaryEditor (edit entry)', () => {
     fireEvent.click(saveButton())
 
     expect(screen.getByRole('alert')).toHaveTextContent('內容不能空白')
-    expect(saveEntry).not.toHaveBeenCalled()
+    expect(saveEntryEdit).not.toHaveBeenCalled()
     expect(screen.getByRole('status')).toBeEmptyDOMElement()
   })
 
@@ -284,6 +298,33 @@ describe('DiaryEditor (edit entry)', () => {
     expect(deleteEntry).not.toHaveBeenCalled()
     expect(contentInput()).toHaveValue('Original text')
     expect(screen.queryByText('主畫面')).not.toBeInTheDocument()
+  })
+
+  it('does not save over an entry deleted meanwhile and keeps the typed text', async () => {
+    vi.mocked(saveEntryEdit).mockResolvedValue(null)
+    renderEditor(existing)
+    fireEvent.change(contentInput(), { target: { value: 'Typed after delete' } })
+    fireEvent.click(saveButton())
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('這篇日記已被刪除，無法儲存。')
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
+    expect(contentInput()).toHaveValue('Typed after delete')
+    expect(saveButton()).toBeEnabled()
+  })
+
+  it('does not add a typed language when the entry was deleted meanwhile', async () => {
+    vi.mocked(saveEntryEdit).mockResolvedValue(null)
+    renderEditor(existing)
+    await waitFor(() => expect(loadSettings).toHaveBeenCalled())
+    fireEvent.change(screen.getByLabelText('語言'), { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText('語言名稱'), { target: { value: '韓文' } })
+    fireEvent.click(saveButton())
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('這篇日記已被刪除，無法儲存。')
+    // The option list is not extended and 其他 keeps the typed name.
+    const labels = Array.from(screen.getByLabelText('語言').options).map((o) => o.textContent)
+    expect(labels).not.toContain('韓文')
+    expect(screen.getByLabelText('語言名稱')).toHaveValue('韓文')
   })
 
   it('shows a Chinese error and stays when deleting fails', async () => {
@@ -344,7 +385,7 @@ describe('DiaryEditor (date limit)', () => {
     fireEvent.click(saveButton())
 
     expect(screen.getByRole('alert')).toHaveTextContent('日期不能晚於今天')
-    expect(saveEntry).not.toHaveBeenCalled()
+    expect(saveEntryEdit).not.toHaveBeenCalled()
     expect(contentInput()).toHaveValue('Edited')
     expect(screen.getByRole('status')).toBeEmptyDOMElement()
   })
@@ -355,7 +396,7 @@ describe('DiaryEditor (date limit)', () => {
     fireEvent.click(saveButton())
 
     expect(screen.getByRole('alert')).toHaveTextContent('日期不能晚於今天')
-    expect(saveEntry).not.toHaveBeenCalled()
+    expect(saveEntryEdit).not.toHaveBeenCalled()
   })
 
   it('saves an entry dated today', async () => {
@@ -586,8 +627,8 @@ describe('DiaryEditor (language)', () => {
       fillContent('Edited')
       fireEvent.click(saveButton())
       expect(await screen.findByText('已儲存')).toBeInTheDocument()
-      expect(vi.mocked(saveEntry).mock.calls[0][0].language).toBe('法文')
-      expect(saveEntryAddingLanguage).not.toHaveBeenCalled()
+      expect(editWrites[0].language).toBe('法文')
+      expect(vi.mocked(saveEntryEdit).mock.calls[0][2]).toBeNull()
     })
 
     it('shows a custom language that was never listed', () => {
@@ -602,7 +643,7 @@ describe('DiaryEditor (language)', () => {
       fireEvent.change(languageSelect(), { target: { value: '英文' } })
       fireEvent.click(saveButton())
       expect(await screen.findByText('已儲存')).toBeInTheDocument()
-      const saved = vi.mocked(saveEntry).mock.calls[0][0]
+      const saved = editWrites[0]
       expect(saved.language).toBe('英文')
       expect(saved.content).toBe(existing.content)
       expect(saved.analysis).toBe(analysis)
@@ -624,9 +665,9 @@ describe('DiaryEditor (language)', () => {
       // Saving again keeps the language and does not add it again.
       fillContent('Second save')
       fireEvent.click(saveButton())
-      await waitFor(() => expect(saveEntry).toHaveBeenCalledTimes(1))
-      expect(vi.mocked(saveEntry).mock.calls[0][0].language).toBe('韓文')
-      expect(saveEntryAddingLanguage).toHaveBeenCalledTimes(1)
+      await waitFor(() => expect(saveEntryEdit).toHaveBeenCalledTimes(2))
+      expect(editWrites[1].language).toBe('韓文')
+      expect(vi.mocked(saveEntryEdit).mock.calls.map((call) => call[2])).toEqual(['韓文', null])
     })
 
     it('merges a language added by a save into a list that loads later', async () => {
@@ -690,7 +731,7 @@ describe('DiaryEditor (language)', () => {
       chooseOther('韓文')
       fireEvent.click(saveButton())
       expect(await screen.findByText('已儲存')).toBeInTheDocument()
-      expect(vi.mocked(saveEntryAddingLanguage).mock.calls[0][0].language).toBe('韓文')
+      expect(editWrites[0].language).toBe('韓文')
       expect(optionLabels().filter((label) => label === '韓文')).toHaveLength(1)
       expect(selectedLabel()).toBe('韓文')
     })

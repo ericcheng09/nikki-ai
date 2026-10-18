@@ -11,6 +11,8 @@ import {
   saveSettings,
   putEntryAddingLanguage,
   removeCustomLanguage,
+  putEntryAnalysis,
+  putEntryEdit,
 } from './db.js'
 
 const entry = (overrides = {}) => ({
@@ -370,5 +372,178 @@ describe('removeCustomLanguage', () => {
     const brokenNow = { toISOString: () => { throw new Error('clock') } }
     await expect(removeCustomLanguage(db, '韓文', { now: brokenNow })).rejects.toThrow()
     expect((await getSettings(db)).customLanguages).toEqual([item('韓文')])
+  })
+})
+
+const sampleAnalysis = (overrides = {}) => ({
+  detectedLanguage: '英文',
+  grammarErrors: [],
+  unclearSentences: [],
+  naturalExpressions: [],
+  correctedText: 'Hello.',
+  translation: '你好。',
+  analyzedAt: '2026-10-18T00:00:00.000Z',
+  ...overrides,
+})
+
+describe('putEntryAnalysis', () => {
+  const NOW = new Date('2026-10-18T05:00:00.000Z')
+
+  it('sets only analysis and updatedAt and keeps every other stored field', async () => {
+    const stored = entry({ content: 'Stored text', date: '2026-10-10', language: '日文' })
+    await putEntry(db, stored)
+    const written = await putEntryAnalysis(db, stored.id, sampleAnalysis(), { now: NOW })
+    const expected = { ...stored, analysis: sampleAnalysis(), updatedAt: NOW.toISOString() }
+    expect(await getAllEntries(db)).toEqual([expected])
+    expect(written).toEqual(expected)
+  })
+
+  it('works on the stored record, not on a copy held by the caller', async () => {
+    await putEntry(db, entry({ content: 'Newer text saved meanwhile' }))
+    await putEntryAnalysis(db, 'id-1', sampleAnalysis(), { now: NOW })
+    expect((await getAllEntries(db))[0].content).toBe('Newer text saved meanwhile')
+  })
+
+  it('replaces an older analysis', async () => {
+    await putEntry(db, entry({ analysis: sampleAnalysis({ translation: '舊的' }) }))
+    await putEntryAnalysis(db, 'id-1', sampleAnalysis({ translation: '新的' }), { now: NOW })
+    expect((await getAllEntries(db))[0].analysis.translation).toBe('新的')
+  })
+
+  it('discards the result for a missing entry and resolves with null', async () => {
+    await putEntry(db, entry({ id: 'other' }))
+    await expect(putEntryAnalysis(db, 'missing', sampleAnalysis(), { now: NOW })).resolves.toBeNull()
+    expect(await getAllEntries(db)).toEqual([entry({ id: 'other' })])
+  })
+
+  it('discards the result for a soft-deleted entry and keeps the tombstone', async () => {
+    const tombstone = {
+      id: 'id-1',
+      updatedAt: '2026-10-17T02:00:00.000Z',
+      deleted: true,
+      deletedAt: '2026-10-17T02:00:00.000Z',
+    }
+    await putEntry(db, tombstone)
+    await expect(putEntryAnalysis(db, 'id-1', sampleAnalysis(), { now: NOW })).resolves.toBeNull()
+    expect(await getAllEntries(db)).toEqual([tombstone])
+  })
+
+  it('rejects and keeps the stored entry when the write fails', async () => {
+    await putEntry(db, entry())
+    const brokenNow = { toISOString: () => { throw new Error('clock') } }
+    await expect(putEntryAnalysis(db, 'id-1', sampleAnalysis(), { now: brokenNow })).rejects.toThrow()
+    expect(await getAllEntries(db)).toEqual([entry()])
+  })
+})
+
+describe('putEntryEdit', () => {
+  const NOW = new Date('2026-10-18T06:00:00.000Z')
+  const changes = { date: '2026-10-16', content: 'Edited', language: '英文' }
+
+  it('merges the editable fields onto the stored record and resolves with it', async () => {
+    await putEntry(db, entry())
+    const written = await putEntryEdit(db, entry(), changes, { now: NOW })
+    const expected = { ...entry(), ...changes, updatedAt: NOW.toISOString() }
+    expect(written).toEqual(expected)
+    expect(await getAllEntries(db)).toEqual([expected])
+  })
+
+  it('keeps an analysis saved while the caller held an older copy', async () => {
+    const stale = entry()
+    await putEntry(db, stale)
+    await putEntryAnalysis(db, stale.id, sampleAnalysis(), { now: new Date('2026-10-18T05:00:00.000Z') })
+    const written = await putEntryEdit(db, stale, changes, { now: NOW })
+    expect(written.analysis).toEqual(sampleAnalysis())
+    expect((await getAllEntries(db))[0]).toMatchObject({ ...changes, analysis: sampleAnalysis() })
+  })
+
+  it('never writes fields other than date, content and language', async () => {
+    await putEntry(db, entry())
+    await putEntryEdit(
+      db,
+      entry(),
+      { ...changes, analysis: 'x', createdAt: 'x', deleted: true },
+      { now: NOW },
+    )
+    expect((await getAllEntries(db))[0]).toMatchObject({
+      analysis: null,
+      createdAt: entry().createdAt,
+      deleted: false,
+    })
+  })
+
+  it('writes nothing and resolves with null for a missing entry', async () => {
+    await expect(putEntryEdit(db, entry(), changes, { now: NOW })).resolves.toBeNull()
+    expect(await getAllEntries(db)).toEqual([])
+  })
+
+  it('does not resurrect a soft-deleted entry', async () => {
+    const tombstone = {
+      id: 'id-1',
+      updatedAt: '2026-10-17T02:00:00.000Z',
+      deleted: true,
+      deletedAt: '2026-10-17T02:00:00.000Z',
+    }
+    await putEntry(db, tombstone)
+    await expect(putEntryEdit(db, entry(), changes, { now: NOW })).resolves.toBeNull()
+    expect(await getAllEntries(db)).toEqual([tombstone])
+  })
+
+  it.each([
+    ['missing', null],
+    ['deleted', { id: 'id-1', updatedAt: 'x', deleted: true, deletedAt: 'x' }],
+  ])('leaves the language list untouched for a %s entry', async (_label, stored) => {
+    if (stored) await putEntry(db, stored)
+    await saveSettings(db, { customLanguages: [] })
+    await expect(
+      putEntryEdit(db, entry(), { language: '韓文' }, { now: NOW, languageToAdd: '韓文' }),
+    ).resolves.toBeNull()
+    expect((await getSettings(db)).customLanguages).toEqual([])
+    expect(await getAllEntries(db)).toEqual(stored ? [stored] : [])
+  })
+
+  it('adds a custom language in the same transaction and keeps the analysis', async () => {
+    await putEntry(db, entry({ analysis: sampleAnalysis() }))
+    const written = await putEntryEdit(
+      db,
+      entry(),
+      { ...changes, language: '韓文' },
+      { now: NOW, languageToAdd: '韓文' },
+    )
+    expect(written).toMatchObject({ language: '韓文', analysis: sampleAnalysis() })
+    expect((await getSettings(db)).customLanguages.map((item) => item.name)).toEqual(['韓文'])
+  })
+
+  it('rolls back the entry when updating the language list fails', async () => {
+    await putEntry(db, entry())
+    // Make the settings write throw inside the transaction, after the
+    // entry was already put.
+    const original = db.transaction.bind(db)
+    vi.spyOn(db, 'transaction').mockImplementation((...args) => {
+      const tx = original(...args)
+      const originalStore = tx.objectStore.bind(tx)
+      tx.objectStore = (name) => {
+        const store = originalStore(name)
+        if (name === SETTINGS_STORE) {
+          store.put = () => {
+            throw new Error('boom')
+          }
+        }
+        return store
+      }
+      return tx
+    })
+    await expect(
+      putEntryEdit(db, entry(), changes, { now: NOW, languageToAdd: '韓文' }),
+    ).rejects.toThrow()
+    vi.restoreAllMocks()
+    expect(await getAllEntries(db)).toEqual([entry()])
+    expect((await getSettings(db)).customLanguages).toEqual([])
+  })
+
+  it('rejects when the entry has no id', async () => {
+    const bad = entry()
+    delete bad.id
+    await expect(putEntryEdit(db, bad, changes, { now: NOW })).rejects.toThrow()
   })
 })

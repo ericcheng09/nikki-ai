@@ -7,6 +7,8 @@ import {
   loadEntry,
   saveEntry,
   saveEntryAddingLanguage,
+  saveEntryAnalysis,
+  saveEntryEdit,
   deleteCustomLanguage,
   loadSettings,
   updateSettings,
@@ -84,6 +86,47 @@ describe('saveEntryAddingLanguage', () => {
   it('rejects and saves nothing for an entry without an id', async () => {
     await expect(saveEntryAddingLanguage({ content: 'x' }, '泰文')).rejects.toThrow()
     expect((await loadSettings()).customLanguages).toEqual([])
+  })
+})
+
+describe('saveEntryEdit and saveEntryAnalysis', () => {
+  const base = {
+    id: 'conn-ai-1',
+    date: '2026-10-17',
+    content: 'Hello',
+    language: 'auto',
+    createdAt: '2026-10-17T01:00:00.000Z',
+    updatedAt: '2026-10-17T01:00:00.000Z',
+    deleted: false,
+    deletedAt: null,
+    analysis: null,
+  }
+  const analysis = { correctedText: 'Hello.' }
+
+  it('keeps an analysis stored meanwhile when an older copy is edited', async () => {
+    await saveEntry(base)
+    const withAnalysis = await saveEntryAnalysis(base.id, analysis)
+    expect(withAnalysis).toMatchObject({ content: 'Hello', analysis })
+    const written = await saveEntryEdit(base, { content: 'Edited' })
+    expect(written).toMatchObject({ content: 'Edited', analysis })
+    expect(await loadEntry(base.id)).toEqual(written)
+  })
+
+  it('adds a custom language with the edit', async () => {
+    await saveEntry(base)
+    await saveEntryEdit(base, { language: '泰文' }, '泰文')
+    expect((await loadSettings()).customLanguages.map((item) => item.name)).toContain('泰文')
+    await updateSettings({ customLanguages: [] })
+  })
+
+  it('refuses to edit an unknown id', async () => {
+    await expect(saveEntryEdit({ ...base, id: 'conn-ai-gone' }, { content: 'x' })).resolves.toBeNull()
+    expect(await loadEntry('conn-ai-gone')).toBeUndefined()
+  })
+
+  it('discards an analysis for an unknown id', async () => {
+    await expect(saveEntryAnalysis('conn-ai-missing', analysis)).resolves.toBeNull()
+    expect(await loadEntry('conn-ai-missing')).toBeUndefined()
   })
 })
 

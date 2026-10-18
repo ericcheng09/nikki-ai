@@ -8,6 +8,8 @@ vi.mock('../storage/connection.js', () => ({
   loadSettings: vi.fn(() => Promise.resolve({ customLanguages: [] })),
   saveEntry: vi.fn(),
   saveEntryAddingLanguage: vi.fn(),
+  saveEntryEdit: vi.fn(),
+  saveEntryAnalysis: vi.fn(),
   deleteEntry: vi.fn(),
 }))
 
@@ -42,6 +44,33 @@ describe('EntryPage', () => {
     expect(await screen.findByRole('heading', { name: '編輯日記' })).toBeInTheDocument()
     expect(loadEntry).toHaveBeenCalledWith('abc')
     expect(screen.getByLabelText('內容')).toHaveValue('Hello')
+  })
+
+  it('shows the stored AI result when the entry is opened again', async () => {
+    vi.mocked(loadEntry).mockResolvedValue({
+      id: 'abc',
+      date: '2026-10-17',
+      content: 'Hello',
+      language: 'auto',
+      createdAt: '2026-10-17T01:00:00.000Z',
+      updatedAt: '2026-10-17T02:00:00.000Z',
+      deleted: false,
+      deletedAt: null,
+      analysis: {
+        detectedLanguage: '英文',
+        grammarErrors: [],
+        unclearSentences: [],
+        naturalExpressions: [],
+        correctedText: 'Hello.',
+        translation: '你好。',
+        analyzedAt: '2026-10-17T02:00:00.000Z',
+      },
+    })
+    renderAt('abc')
+
+    expect(await screen.findByText('批改時間：2026-10-17 10:00')).toBeInTheDocument()
+    expect(screen.getByText('你好。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'AI 批改' })).toBeInTheDocument()
   })
 
   it('shows 找不到這篇日記 for an unknown id, without a form', async () => {

@@ -5,6 +5,7 @@ import {
   removeLanguage,
   resolveLanguageInput,
 } from '../lib/languages.js'
+import { updateEntry } from '../lib/diary.js'
 
 // Plain IndexedDB with small Promise helpers; no wrapper library.
 // Every function takes an open IDBDatabase so callers (and tests) control
@@ -168,26 +169,92 @@ export async function putEntryAddingLanguage(
 ) {
   await runTransaction(db, [ENTRIES_STORE, SETTINGS_STORE], 'readwrite', (tx) => {
     tx.objectStore(ENTRIES_STORE).put(entry)
-    // Same rule as the editor: only custom names (not auto, built-ins or
-    // blank) belong in the list, compared after trimming.
-    const resolved = resolveLanguageInput(languageToAdd)
-    if (!resolved?.isCustom) return
-    const name = resolved.language
-    const settings = tx.objectStore(SETTINGS_STORE)
-    const request = settings.get('customLanguages')
+    addLanguageInTransaction(tx, languageToAdd, now)
+  })
+}
+
+// Adds a custom language to customLanguages inside `tx` (which must cover
+// SETTINGS_STORE). Same rule as the editor: only custom names (not auto,
+// built-ins or blank) belong in the list, compared after trimming.
+function addLanguageInTransaction(tx, languageToAdd, now) {
+  const resolved = resolveLanguageInput(languageToAdd)
+  if (!resolved?.isCustom) return
+  const name = resolved.language
+  const settings = tx.objectStore(SETTINGS_STORE)
+  const request = settings.get('customLanguages')
+  request.onsuccess = () => {
+    try {
+      const current = request.result ?? []
+      // Already active: leave the record untouched (addLanguage would
+      // also tidy malformed data, which is not worth a write).
+      if (activeLanguageNames(current).includes(name)) return
+      settings.put(addLanguage(current, name, { now }), 'customLanguages')
+    } catch {
+      // Abort explicitly (rolling back the entry too) instead of letting
+      // the exception escape the event handler as an uncaught error.
+      tx.abort()
+    }
+  }
+}
+
+// Saves an edit of an existing entry (editor, edit mode). Only the
+// editable fields in `changes` (date, content, language; see updateEntry)
+// are applied, on top of the record CURRENTLY stored under `base.id`, read
+// inside the same readwrite transaction. Fields written meanwhile by
+// someone else, notably an AI analysis that finished while the editor held
+// an older copy, are therefore kept.
+// A missing or soft-deleted entry is never written (deleted entries must
+// not come back, spec 4.1): nothing changes, including the language list,
+// and the Promise resolves with null. Otherwise, with `languageToAdd`, the
+// custom language list is updated in the same transaction (see
+// putEntryAddingLanguage), and it resolves with the written record.
+export function putEntryEdit(db, base, changes, { now = new Date(), languageToAdd } = {}) {
+  const storeNames = languageToAdd ? [ENTRIES_STORE, SETTINGS_STORE] : ENTRIES_STORE
+  return runTransaction(db, storeNames, 'readwrite', (tx) => {
+    const entries = tx.objectStore(ENTRIES_STORE)
+    const request = entries.get(base.id)
+    let written = null
     request.onsuccess = () => {
       try {
-        const current = request.result ?? []
-        // Already active: leave the record untouched (addLanguage would
-        // also tidy malformed data, which is not worth a write).
-        if (activeLanguageNames(current).includes(name)) return
-        settings.put(addLanguage(current, name, { now }), 'customLanguages')
+        const stored = request.result
+        if (!stored || stored.deleted) return
+        written = updateEntry(stored, changes, { now })
+        entries.put(written)
+        // Only once the entry is known to be live, so a refused edit
+        // leaves the list untouched as well.
+        if (languageToAdd) addLanguageInTransaction(tx, languageToAdd, now)
       } catch {
-        // Abort explicitly (rolling back the entry too) instead of letting
-        // the exception escape the event handler as an uncaught error.
+        // See addLanguageInTransaction: abort instead of an uncaught error.
         tx.abort()
       }
     }
+    return () => written
+  })
+}
+
+// Stores an AI analysis for the entry `id` (decisions.md Phase 2 AI 批改).
+// The current record is read inside one readwrite transaction and only
+// `analysis` and `updatedAt` change; content and every other field stay
+// as stored, so edits saved while the request ran are kept and the diary
+// text is never written. A missing or soft-deleted entry discards the
+// result: nothing is written and the Promise resolves with null.
+// Otherwise it resolves with the written record.
+export function putEntryAnalysis(db, id, analysis, { now = new Date() } = {}) {
+  return runTransaction(db, ENTRIES_STORE, 'readwrite', (tx) => {
+    const entries = tx.objectStore(ENTRIES_STORE)
+    const request = entries.get(id)
+    let written = null
+    request.onsuccess = () => {
+      try {
+        const stored = request.result
+        if (!stored || stored.deleted) return
+        written = { ...stored, analysis, updatedAt: now.toISOString() }
+        entries.put(written)
+      } catch {
+        tx.abort()
+      }
+    }
+    return () => written
   })
 }
 

@@ -121,12 +121,37 @@ export async function writeStore(page, storeName, data) {
 }
 
 // --- Gemini API mock -------------------------------------------------------
-// installGeminiMock() answers GET requests to the models endpoint with
-// `mock.respond(route, callNumber)` (replaceable per test) and records them in
-// `mock.modelRequests`. Any other external request falls back to the guard
-// above, which aborts it and fails the test.
+// installGeminiMock() answers:
+// - GET  .../v1beta/models (list):  `mock.respond(route, callNumber)`,
+//   recorded in `mock.modelRequests` ({ url, headers })
+// - POST .../v1beta/models/<id>:generateContent: `mock.generate(route,
+//   callNumber)`, recorded in `mock.generateRequests` ({ url, headers, body })
+// Both handlers are replaceable per test. Any other external request falls
+// back to the guard above, which aborts it and fails the test.
 
 export const GEMINI_MODELS_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
+const GENERATE_PATH = /^\/v1beta\/models\/[^/]+:generateContent$/
+
+// A complete, valid analysis as the model would return it (no analyzedAt).
+export const MOCK_ANALYSIS = {
+  detectedLanguage: '日文',
+  grammarErrors: [
+    { original: 'カフェを行きました', corrected: 'カフェに行きました', explanation: '移動的目的地用「に」。' },
+  ],
+  unclearSentences: [
+    { original: '明日も早く起きるつもりです、でも少し疲れました。', suggestion: '少し疲れましたが、明日も早く起きるつもりです。', explanation: '用「が」連接比較自然。' },
+  ],
+  naturalExpressions: [
+    { original: 'ケーキを二つ食べました', alternatives: ['ケーキを二つも食べちゃった', 'ケーキを二つ平らげた'], explanation: '口語更自然。' },
+  ],
+  correctedText: '今日は友達とカフェ**に**行きました。',
+  translation: '今天和朋友去了咖啡店。',
+}
+
+// generateContent response body carrying `text` as the model output.
+export function generateBody(text) {
+  return { candidates: [{ content: { role: 'model', parts: [{ text }] }, finishReason: 'STOP' }] }
+}
 
 // A typical models list: includes entries the app must filter out.
 export const MOCK_MODELS = [
@@ -149,7 +174,12 @@ export function fulfillJson(route, body, status = 200) {
 }
 
 export async function installGeminiMock(page, respond = (route) => fulfillJson(route, { models: MOCK_MODELS })) {
-  const mock = { respond, modelRequests: [] }
+  const mock = {
+    respond,
+    generate: (route) => fulfillJson(route, generateBody(JSON.stringify(MOCK_ANALYSIS))),
+    modelRequests: [],
+    generateRequests: [],
+  }
   await page.route(
     (url) => url.hostname !== 'localhost',
     async (route) => {
@@ -158,6 +188,16 @@ export async function installGeminiMock(page, respond = (route) => fulfillJson(r
       if (`${url.origin}${url.pathname}` === GEMINI_MODELS_URL && request.method() === 'GET') {
         mock.modelRequests.push({ url: request.url(), headers: await request.allHeaders() })
         return mock.respond(route, mock.modelRequests.length)
+      }
+      if (url.origin === new URL(GEMINI_MODELS_URL).origin && GENERATE_PATH.test(url.pathname)) {
+        if (request.method() === 'POST') {
+          mock.generateRequests.push({
+            url: request.url(),
+            headers: await request.allHeaders(),
+            body: request.postDataJSON(),
+          })
+          return mock.generate(route, mock.generateRequests.length)
+        }
       }
       return route.fallback()
     },

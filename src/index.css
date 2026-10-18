@@ -37,7 +37,8 @@ body {
 }
 
 .toolbar h2,
-.diary-editor h2 {
+.diary-editor h2,
+.ai-review h2 {
   font-size: 1.2rem;
   margin: 0;
 }
@@ -194,6 +195,17 @@ body {
 .settings-steps {
   margin: 0;
   padding-left: 1.5em;
+}
+
+.ai-review {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 32px;
+}
+
+.ai-review > p {
+  margin: 0;
 }
 
 .analysis-view {

@@ -7,6 +7,7 @@ import {
   filterActiveEntries,
   getLocalDateString,
   isAfterToday,
+  formatLocalDateTime,
 } from './diary.js'
 
 const NOW = new Date('2026-10-17T03:04:05.678Z')
@@ -271,4 +272,22 @@ describe('isAfterToday', () => {
   it('returns false for an empty date', () => {
     expect(isAfterToday('', now)).toBe(false)
   })
+})
+
+describe('formatLocalDateTime', () => {
+  // Unit tests run in Asia/Taipei (UTC+8), see decisions.md.
+  it('formats an ISO timestamp as YYYY-MM-DD HH:mm in local time', () => {
+    expect(formatLocalDateTime('2026-10-17T03:04:05.678Z')).toBe('2026-10-17 11:04')
+  })
+
+  it('moves to the next local day across midnight', () => {
+    expect(formatLocalDateTime('2026-12-31T16:30:00.000Z')).toBe('2027-01-01 00:30')
+  })
+
+  it.each([[undefined], [null], [''], ['not a date'], [42], [{}]])(
+    'returns an empty string for a missing or invalid value (%j)',
+    (value) => {
+      expect(formatLocalDateTime(value)).toBe('')
+    },
+  )
 })
