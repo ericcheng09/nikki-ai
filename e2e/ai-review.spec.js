@@ -9,6 +9,7 @@ import {
   readStore,
   startApp,
   writeStore,
+  backButton,
 } from './helpers.js'
 
 // E2E for Phase 2 T8: AI review on the entry page (spec 3.2, 4.2, 5.2-5.4,
@@ -408,7 +409,7 @@ test.describe('AI review', () => {
     await expect(busyButton(page)).toBeDisabled()
     await expect.poll(() => gemini.generateRequests.length).toBe(1)
 
-    await page.getByRole('link', { name: '返回列表' }).click()
+    await backButton(page).click()
     await expect(page).toHaveURL(HOME_URL)
     release()
     await expect.poll(async () => (await storedEntry(page, id)).analysis).not.toBeNull()

@@ -1,4 +1,13 @@
-import { test, expect, GEMINI_MODELS_URL, installGeminiMock, readStore, startApp } from './helpers.js'
+import {
+  test,
+  expect,
+  GEMINI_MODELS_URL,
+  installGeminiMock,
+  readStore,
+  startApp,
+  backButton,
+  settingsIcon,
+} from './helpers.js'
 
 // E2E for Phase 2 T2: Gemini API key on the settings page
 // (spec 3.6, 5.4, 8.2-1; decisions.md 設定頁).
@@ -96,15 +105,14 @@ test.describe('settings: Gemini API key', () => {
     await expect(notice(page)).toHaveText('')
   })
 
-  test('the key is saved after going through the menu and survives a new browser', async ({
+  test('the key is saved after going through the top bar and survives a new browser', async ({
     newContext,
   }) => {
     const first = await newContext()
     const page = await first.newPage()
     await installGeminiMock(page)
     await startApp(page)
-    await page.getByRole('button', { name: '選單' }).click()
-    await page.getByRole('link', { name: '設定', exact: true }).click()
+    await settingsIcon(page).click()
     await expect(page.getByRole('heading', { level: 3, name: 'Gemini API key' })).toBeVisible()
     await saveKey(page, FAKE_KEY)
     const state = await first.storageState({ indexedDB: true })
@@ -254,7 +262,7 @@ test.describe('settings: Gemini API key', () => {
     await keyInput(page).fill(FAKE_KEY)
     await deleteButton(page).click()
     await expect(notice(page)).toHaveText('已刪除')
-    await page.getByRole('link', { name: '回主畫面' }).click()
+    await backButton(page).click()
     await page.waitForLoadState('networkidle')
 
     // Model list queried after the save and after the reload, with the key

@@ -1,4 +1,13 @@
-import { test, expect, HOME_URL, WELCOME_URL, readStore, startApp } from './helpers.js'
+import {
+  test,
+  expect,
+  HOME_URL,
+  WELCOME_URL,
+  readStore,
+  startApp,
+  backButton,
+  guideIcon,
+} from './helpers.js'
 
 // E2E for T6c: the first-use welcome page (spec 3.5, 4.3, 8.1-7).
 // Each test runs in a fresh browser context, i.e. a real first visit.
@@ -18,10 +27,9 @@ const ANALYSIS_SECTIONS = [
 const entryItems = (page) => page.locator('ul.entries > li')
 const startButton = (page) => page.getByRole('button', { name: '開始使用' })
 
-// 使用說明 lives in the home page menu (spec 3.5).
-async function openGuideFromMenu(page) {
-  await page.getByRole('button', { name: '選單' }).click()
-  await page.getByRole('link', { name: '使用說明' }).click()
+// 使用說明 is the question-mark icon in the top bar (decisions.md 畫面).
+async function openGuideFromBar(page) {
+  await guideIcon(page).click()
 }
 
 async function expectWelcomeContent(page) {
@@ -163,7 +171,7 @@ test.describe('welcome page', () => {
     await expect(startButton(page)).toHaveCount(0)
     // Navigating home again within this page load still does not redirect.
     await page.getByRole('link', { name: '新增日記' }).click()
-    await page.getByRole('link', { name: '取消' }).click()
+    await backButton(page).click()
     await expect(page).toHaveURL(HOME_URL)
     await expect(page.getByRole('heading', { level: 2, name: '我的日記' })).toBeVisible()
 
@@ -173,10 +181,10 @@ test.describe('welcome page', () => {
     await expect(page).toHaveURL(WELCOME_URL)
   })
 
-  test('the menu 使用說明 item reopens the welcome page without resetting it', async ({ page }) => {
+  test('the top bar 使用說明 icon reopens the welcome page without resetting it', async ({ page }) => {
     await startApp(page)
 
-    await openGuideFromMenu(page)
+    await openGuideFromBar(page)
     await expect(page).toHaveURL(WELCOME_URL)
     await expectWelcomeContent(page)
 
@@ -186,8 +194,8 @@ test.describe('welcome page', () => {
 
     // Still no automatic redirect afterwards.
     await expectHomeWithoutRedirect(page)
-    // Viewing it via the menu and leaving another way changes nothing either.
-    await openGuideFromMenu(page)
+    // Viewing it via the top bar and leaving another way changes nothing either.
+    await openGuideFromBar(page)
     await expect(page).toHaveURL(WELCOME_URL)
     await page.getByRole('link', { name: '外語學習日記' }).click()
     await expect(page).toHaveURL(HOME_URL)
@@ -232,7 +240,7 @@ test.describe('welcome page', () => {
     await expectWelcomeContent(page)
     await startButton(page).click()
     await expect(page).toHaveURL(HOME_URL)
-    await openGuideFromMenu(page)
+    await openGuideFromBar(page)
     await expect(page).toHaveURL(WELCOME_URL)
     expect(messages).toEqual([])
   })

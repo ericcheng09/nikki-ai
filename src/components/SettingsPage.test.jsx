@@ -51,20 +51,14 @@ function saveKey(input, value) {
 }
 
 describe('SettingsPage', () => {
-  it('shows the 設定 heading, a link back home and the API key section', async () => {
+  it('shows the 設定 heading and the API key section, without its own home link', async () => {
     renderSettings()
     expect(screen.getByRole('heading', { level: 2, name: '設定' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '回主畫面' })).toHaveAttribute('href', '/')
+    // Back / home are in the top bar (decisions.md 畫面).
+    expect(screen.queryByRole('link', { name: '回主畫面' })).not.toBeInTheDocument()
     expect(
       await screen.findByRole('heading', { level: 3, name: 'Gemini API key' }),
     ).toBeInTheDocument()
-  })
-
-  it('goes back to the home route via 回主畫面', async () => {
-    renderSettings()
-    await screen.findByText('尚未設定 API key')
-    fireEvent.click(screen.getByRole('link', { name: '回主畫面' }))
-    expect(screen.getByText('主畫面')).toBeInTheDocument()
   })
 
   it('hides the model section while no key is saved', async () => {

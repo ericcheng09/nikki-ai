@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import DiaryList from './DiaryList.jsx'
-import HomeMenu from './HomeMenu.jsx'
 import {
   isWelcomeSeenThisSession,
   loadSettings,
@@ -37,13 +36,5 @@ export default function HomePage() {
   // replace: Back from the welcome page should not bounce to "/" again.
   if (status === 'welcome') return <Navigate to="/welcome" replace />
 
-  return (
-    <>
-      {/* The menu lives only on the home page (decisions.md, Phase 2). */}
-      <div className="home-menu-bar">
-        <HomeMenu />
-      </div>
-      <DiaryList />
-    </>
-  )
+  return <DiaryList />
 }

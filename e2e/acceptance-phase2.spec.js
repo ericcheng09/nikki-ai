@@ -8,6 +8,8 @@ import {
   installGeminiMock,
   readStore,
   startApp,
+  backButton,
+  settingsIcon,
 } from './helpers.js'
 
 // Phase 2 acceptance (spec 8.2): one end-to-end happy path through the UI,
@@ -52,8 +54,7 @@ test('acceptance 8.2: key → model → custom-language diary → AI review → 
   await startApp(page)
 
   // 8.2-1 / 8.2-12: set the key in settings; a Flash model is auto-selected.
-  await page.getByRole('button', { name: '選單' }).click()
-  await page.getByRole('link', { name: '設定', exact: true }).click()
+  await settingsIcon(page).click()
   const keySection = page.getByRole('region', { name: 'Gemini API key' })
   await expect(keySection.getByRole('heading', { name: '如何取得 API key' })).toBeVisible()
   await keySection.getByLabel('API key', { exact: true }).fill(FAKE_KEY)
@@ -63,7 +64,7 @@ test('acceptance 8.2: key → model → custom-language diary → AI review → 
   await expect(modelSelect).toHaveValue('models/gemini-2.5-flash')
 
   // 8.2-4: write a diary with a custom language (其他 → 韓文).
-  await page.getByRole('link', { name: '回主畫面' }).click()
+  await backButton(page).click()
   await expect(page).toHaveURL(HOME_URL)
   await page.getByRole('link', { name: '新增日記' }).click()
   await page.getByLabel('內容').fill(FIRST_TEXT)

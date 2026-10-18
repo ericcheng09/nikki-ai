@@ -754,3 +754,15 @@ describe('DiaryEditor (layout)', () => {
     expect(screen.queryByRole('region', { name: 'AI 批改結果' })).not.toBeInTheDocument()
   })
 })
+
+describe('DiaryEditor (navigation)', () => {
+  it.each([
+    ['new', undefined],
+    ['edit', existing],
+  ])('has no bottom 返回列表 / 取消 link (%s); the top bar has 返回', (_mode, entry) => {
+    renderEditor(entry)
+    expect(screen.queryByRole('link', { name: '返回列表' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '取消' })).not.toBeInTheDocument()
+    expect(saveButton()).toBeInTheDocument()
+  })
+})

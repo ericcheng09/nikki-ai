@@ -62,6 +62,14 @@ export async function startApp(page) {
   await expect(page.getByRole('heading', { level: 2, name: '我的日記' })).toBeVisible()
 }
 
+// Top bar on every page (decisions.md 畫面): 「←」 返回 on settings and
+// entry pages, the app name in the middle, 設定 (gear) and 使用說明 (?) on
+// the right, or only 開始使用 on the welcome page.
+export const topBar = (page) => page.getByRole('banner')
+export const backButton = (page) => topBar(page).getByRole('button', { name: '返回', exact: true })
+export const settingsIcon = (page) => topBar(page).getByRole('link', { name: '設定', exact: true })
+export const guideIcon = (page) => topBar(page).getByRole('link', { name: '使用說明', exact: true })
+
 // Reads every record of an IndexedDB object store of the app, as stored.
 // For the out-of-line-keyed "settings" store, returns { key: value }.
 export async function readStore(page, storeName) {

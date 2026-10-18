@@ -152,8 +152,8 @@ test.describe('entry page layout', () => {
       return Boolean(f.compareDocumentPosition(p) & Node.DOCUMENT_POSITION_FOLLOWING)
     })
     expect(formFirst).toBe(true)
-    // The last form control (返回列表) is followed by the AI 批改 button.
-    await page.getByRole('link', { name: '返回列表' }).focus()
+    // The last form control (刪除) is followed by the AI 批改 button.
+    await form(page).getByRole('button', { name: '刪除' }).focus()
     await page.keyboard.press('Tab')
     await expect(panel(page).getByRole('button', { name: 'AI 批改', exact: true })).toBeFocused()
   })

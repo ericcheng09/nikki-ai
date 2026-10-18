@@ -1,4 +1,9 @@
-import { test, expect, startApp } from './helpers.js'
+import {
+  test,
+  expect,
+  startApp,
+  backButton,
+} from './helpers.js'
 
 // E2E for T4: create diary entries and show them in the list.
 // Every test gets a fresh browser context (Playwright default), so each one
@@ -147,7 +152,7 @@ test.describe('create diary entry', () => {
       await expect(page).toHaveURL(/\/nikki-ai\/entry\/new$/)
     }
 
-    await page.getByRole('link', { name: '取消' }).click()
+    await backButton(page).click()
     await expectEmptyList(page)
     // Nothing was written, even after a reload.
     await page.reload()
@@ -165,7 +170,7 @@ test.describe('create diary entry', () => {
     // Typed content is kept.
     await expect(page.getByLabel('內容')).toHaveValue('No date here')
 
-    await page.getByRole('link', { name: '取消' }).click()
+    await backButton(page).click()
     await expectEmptyList(page)
   })
 

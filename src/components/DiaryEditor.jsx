@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import AiReviewPanel from './AiReviewPanel.jsx'
 import LanguageField from './LanguageField.jsx'
 import {
@@ -276,7 +276,6 @@ export default function DiaryEditor({ entry }) {
               刪除
             </button>
           )}
-          <Link to="/">{isEdit ? '返回列表' : '取消'}</Link>
         </div>
       </form>
       {/* Only saved entries can be reviewed; /entry/new has no panel. */}

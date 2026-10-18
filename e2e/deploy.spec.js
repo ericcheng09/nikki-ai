@@ -1,4 +1,12 @@
-import { test, expect, HOME_URL, WELCOME_URL, startApp } from './helpers.js'
+import {
+  test,
+  expect,
+  HOME_URL,
+  WELCOME_URL,
+  startApp,
+  backButton,
+  settingsIcon,
+} from './helpers.js'
 
 // E2E for T7: behaviour of the production build as served by GitHub Pages
 // (mocked by scripts/pages-server.js): unknown paths return status 404 with
@@ -67,7 +75,7 @@ test.describe('production build on GitHub Pages', () => {
     await expect(page.getByLabel('內容')).toHaveValue('Reload me on Pages\nsecond line')
 
     // Back to the list through the app, then reload the home page: 200.
-    await page.getByRole('link', { name: '返回列表' }).click()
+    await backButton(page).click()
     await expect(page).toHaveURL(HOME_URL)
     const home = await page.reload()
     expect(home.status()).toBe(200)
@@ -83,14 +91,13 @@ test.describe('production build on GitHub Pages', () => {
 
     // Reached through the home menu, then reloaded.
     await startApp(page)
-    await page.getByRole('button', { name: '選單' }).click()
-    await page.getByRole('link', { name: '設定', exact: true }).click()
+    await settingsIcon(page).click()
     await expect(page).toHaveURL(/\/nikki-ai\/settings$/)
     const reloaded = await page.reload()
     expect(reloaded.status()).toBe(404)
     await expect(page).toHaveURL(/\/nikki-ai\/settings$/)
     await expect(page.getByRole('heading', { level: 2, name: '設定' })).toBeVisible()
-    await page.getByRole('link', { name: '回主畫面' }).click()
+    await backButton(page).click()
     await expect(page).toHaveURL(HOME_URL)
   })
 

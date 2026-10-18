@@ -1,4 +1,12 @@
-import { test, expect, HOME_URL, readStore, startApp, writeStore } from './helpers.js'
+import {
+  test,
+  expect,
+  HOME_URL,
+  readStore,
+  startApp,
+  writeStore,
+  backButton,
+} from './helpers.js'
 
 // E2E for Phase 2 T4: diary language selection in the editor
 // (spec 2.2, 4.1, 8.2-4; decisions.md 日記語言 / 設定頁).
@@ -347,7 +355,7 @@ test.describe('diary language', () => {
   test('the list page still works with languages set', async ({ page }) => {
     await startApp(page)
     await createWith(page, 'Entry in Korean', { other: '韓文' })
-    await page.getByRole('link', { name: '返回列表' }).click()
+    await backButton(page).click()
     await expect(page).toHaveURL(HOME_URL)
     await expect(page.locator('ul.entries > li')).toHaveCount(1)
     await expect(page.locator('ul.entries .entry-preview')).toHaveText('Entry in Korean')
