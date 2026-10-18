@@ -1,11 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import DiaryList from './DiaryList.jsx'
-import { loadEntries } from '../storage/connection.js'
-
-vi.mock('../storage/connection.js', () => ({
-  loadEntries: vi.fn(),
-}))
 
 const entry = (id, date, createdAt, content = `content ${id}`) => ({
   id,
@@ -17,26 +12,21 @@ const entry = (id, date, createdAt, content = `content ${id}`) => ({
   deletedAt: null,
 })
 
-function renderList() {
+function renderList(entries = [], status = 'ready') {
   return render(
     <MemoryRouter>
-      <DiaryList />
+      <DiaryList status={status} entries={entries} />
     </MemoryRouter>,
   )
 }
 
-afterEach(() => {
-  vi.mocked(loadEntries).mockReset()
-})
-
 describe('DiaryList', () => {
   it('shows entries newest date first, later-written first within a day', async () => {
-    vi.mocked(loadEntries).mockResolvedValue([
+    renderList([
       entry('old', '2026-10-15', '2026-10-15T01:00:00.000Z'),
       entry('today-early', '2026-10-17', '2026-10-17T01:00:00.000Z'),
       entry('today-late', '2026-10-17', '2026-10-17T09:00:00.000Z'),
     ])
-    renderList()
 
     const items = await screen.findAllByRole('listitem')
     expect(items.map((li) => li.querySelector('.entry-preview').textContent)).toEqual([
@@ -49,11 +39,10 @@ describe('DiaryList', () => {
   })
 
   it('does not show soft-deleted entries', async () => {
-    vi.mocked(loadEntries).mockResolvedValue([
+    renderList([
       entry('kept', '2026-10-17', '2026-10-17T01:00:00.000Z'),
       { id: 'gone', updatedAt: '2026-10-17T02:00:00.000Z', deleted: true, deletedAt: '2026-10-17T02:00:00.000Z' },
     ])
-    renderList()
 
     const items = await screen.findAllByRole('listitem')
     expect(items).toHaveLength(1)
@@ -62,10 +51,9 @@ describe('DiaryList', () => {
 
   it('truncates long content into a single-line preview', async () => {
     const long = 'a'.repeat(50) + '\n' + 'b'.repeat(50)
-    vi.mocked(loadEntries).mockResolvedValue([
+    renderList([
       entry('long', '2026-10-17', '2026-10-17T01:00:00.000Z', long),
     ])
-    renderList()
 
     const item = await screen.findByRole('listitem')
     const text = item.querySelector('.entry-preview').textContent
@@ -76,10 +64,9 @@ describe('DiaryList', () => {
     // 79 ASCII chars + 2 emoji (surrogate pairs): the 80th character is the
     // first emoji, which must stay whole.
     const content = 'x'.repeat(79) + '😀😀'
-    vi.mocked(loadEntries).mockResolvedValue([
+    renderList([
       entry('emoji', '2026-10-17', '2026-10-17T01:00:00.000Z', content),
     ])
-    renderList()
 
     const item = await screen.findByRole('listitem')
     expect(item.querySelector('.entry-preview').textContent).toBe(
@@ -88,28 +75,25 @@ describe('DiaryList', () => {
   })
 
   it('links each entry to its entry page', async () => {
-    vi.mocked(loadEntries).mockResolvedValue([
+    renderList([
       entry('abc', '2026-10-17', '2026-10-17T01:00:00.000Z'),
     ])
-    renderList()
 
     const item = await screen.findByRole('listitem')
     expect(item.querySelector('a')).toHaveAttribute('href', '/entry/abc')
   })
 
   it('shows an empty state when there are no active entries', async () => {
-    vi.mocked(loadEntries).mockResolvedValue([
+    renderList([
       { id: 'gone', updatedAt: 'x', deleted: true, deletedAt: 'x' },
     ])
-    renderList()
 
     expect(await screen.findByText(/還沒有日記/)).toBeInTheDocument()
     expect(screen.queryByRole('listitem')).not.toBeInTheDocument()
   })
 
   it('shows a Chinese error message when loading fails', async () => {
-    vi.mocked(loadEntries).mockRejectedValue(new Error('boom'))
-    renderList()
+    renderList([], 'error')
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '無法存取本機資料，請重新整理頁面。',
@@ -117,13 +101,26 @@ describe('DiaryList', () => {
   })
 
   it('links to the new entry page', async () => {
-    vi.mocked(loadEntries).mockResolvedValue([])
-    renderList()
+    renderList([])
 
     expect(screen.getByRole('link', { name: '新增日記' })).toHaveAttribute(
       'href',
       '/entry/new',
     )
     await screen.findByText(/還沒有日記/)
+  })
+})
+
+describe('DiaryList (status)', () => {
+  it('shows only a loading text while loading, even if entries are passed', () => {
+    renderList([entry('a', '2026-10-17', '2026-10-17T01:00:00.000Z')], 'loading')
+    expect(screen.getByText('載入中…')).toBeInTheDocument()
+    expect(screen.queryByRole('listitem')).not.toBeInTheDocument()
+    expect(screen.queryByText(/還沒有日記/)).not.toBeInTheDocument()
+  })
+
+  it('treats missing entries as an empty list', () => {
+    renderList(undefined)
+    expect(screen.getByText(/還沒有日記/)).toBeInTheDocument()
   })
 })

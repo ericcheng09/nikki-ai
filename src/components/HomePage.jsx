@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
+import Calendar from './Calendar.jsx'
 import DiaryList from './DiaryList.jsx'
 import {
   isWelcomeSeenThisSession,
+  loadEntries,
   loadSettings,
 } from '../storage/connection.js'
 
@@ -36,5 +38,41 @@ export default function HomePage() {
   // replace: Back from the welcome page should not bounce to "/" again.
   if (status === 'welcome') return <Navigate to="/welcome" replace />
 
-  return <DiaryList />
+  return <HomeContent />
+}
+
+// Loads the entries once (after the welcome check, so a redirect never
+// reads the diary) and shares them between the calendar and the list.
+function HomeContent() {
+  // status: 'loading' | 'ready' | 'error'
+  const [status, setStatus] = useState('loading')
+  const [entries, setEntries] = useState([])
+
+  useEffect(() => {
+    // Ignore results that arrive after unmount (also covers StrictMode's
+    // mount -> unmount -> mount cycle in development).
+    let active = true
+    loadEntries()
+      .then((all) => {
+        if (!active) return
+        setEntries(all)
+        setStatus('ready')
+      })
+      .catch(() => {
+        // Deliberately not logging: the error could carry diary data.
+        if (active) setStatus('error')
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  return (
+    // Calendar first in the DOM (and reading/tab order); index.css puts it
+    // above the list on narrow screens and to its left from 768px.
+    <div className="home-layout">
+      <Calendar entries={entries} />
+      <DiaryList status={status} entries={entries} />
+    </div>
+  )
 }

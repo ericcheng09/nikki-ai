@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { filterActiveEntries, sortEntries } from '../lib/diary.js'
-import { loadEntries } from '../storage/connection.js'
 
 const PREVIEW_LENGTH = 80
 
@@ -15,29 +14,14 @@ function preview(content) {
     : chars.join('')
 }
 
-export default function DiaryList() {
-  // status: 'loading' | 'ready' | 'error'
-  const [status, setStatus] = useState('loading')
-  const [entries, setEntries] = useState([])
-
-  useEffect(() => {
-    // Ignore results that arrive after unmount (also covers StrictMode's
-    // mount -> unmount -> mount cycle in development).
-    let active = true
-    loadEntries()
-      .then((all) => {
-        if (!active) return
-        setEntries(sortEntries(filterActiveEntries(all)))
-        setStatus('ready')
-      })
-      .catch(() => {
-        // Deliberately not logging: the error could carry diary data.
-        if (active) setStatus('error')
-      })
-    return () => {
-      active = false
-    }
-  }, [])
+// Presentational list; HomePage loads the entries once and shares them
+// with the calendar. `status`: 'loading' | 'ready' | 'error'. `entries` is
+// the raw stored list (tombstones included); only active ones are shown.
+export default function DiaryList({ status, entries }) {
+  const shown = useMemo(
+    () => (status === 'ready' ? sortEntries(filterActiveEntries(entries ?? [])) : []),
+    [status, entries],
+  )
 
   return (
     <section className="diary-list">
@@ -54,12 +38,12 @@ export default function DiaryList() {
           無法存取本機資料，請重新整理頁面。
         </p>
       )}
-      {status === 'ready' && entries.length === 0 && (
+      {status === 'ready' && shown.length === 0 && (
         <p className="muted">還沒有日記，按「新增日記」開始寫第一篇吧。</p>
       )}
-      {status === 'ready' && entries.length > 0 && (
+      {status === 'ready' && shown.length > 0 && (
         <ul className="entries">
-          {entries.map((entry) => (
+          {shown.map((entry) => (
             <li key={entry.id}>
               <Link className="entry-item" to={`/entry/${entry.id}`}>
                 <time dateTime={entry.date}>{entry.date}</time>

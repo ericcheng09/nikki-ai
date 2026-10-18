@@ -75,4 +75,48 @@ describe('HomePage', () => {
     expect(screen.getByText('載入中…')).toBeInTheDocument()
     expect(loadEntries).not.toHaveBeenCalled()
   })
+
+  it('loads the entries once and shares them with the calendar and the list', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-18T03:00:00Z'))
+    try {
+      vi.mocked(loadSettings).mockResolvedValue({ welcomeSeen: true })
+      vi.mocked(loadEntries).mockResolvedValue([
+        {
+          id: 'a',
+          date: '2026-10-05',
+          content: 'hello',
+          createdAt: '2026-10-05T01:00:00.000Z',
+          updatedAt: '2026-10-05T01:00:00.000Z',
+          deleted: false,
+          deletedAt: null,
+        },
+        { id: 'gone', updatedAt: 'x', deleted: true, deletedAt: 'x' },
+      ])
+      renderHome()
+      expect(await screen.findByRole('button', { name: '10月5日，有日記' })).toBeInTheDocument()
+      expect(screen.getAllByRole('listitem')).toHaveLength(1)
+      expect(loadEntries).toHaveBeenCalledTimes(1)
+
+      // DOM order: calendar, then the list.
+      const calendar = screen.getByRole('region', { name: '2026 年 10 月' })
+      const listHeading = screen.getByRole('heading', { name: '我的日記' })
+      expect(calendar.compareDocumentPosition(listHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(calendar.closest('.home-layout')).toContainElement(listHeading)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('shows the load error in the list and keeps the calendar without marks', async () => {
+    const consoleSpy = vi.spyOn(console, 'error')
+    vi.mocked(loadSettings).mockResolvedValue({ welcomeSeen: true })
+    vi.mocked(loadEntries).mockRejectedValue(new Error('boom'))
+    renderHome()
+    expect(await screen.findByRole('alert')).toHaveTextContent('無法存取本機資料，請重新整理頁面。')
+    expect(screen.getByRole('table')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /有日記/ })).not.toBeInTheDocument()
+    expect(consoleSpy).not.toHaveBeenCalled()
+    consoleSpy.mockRestore()
+  })
 })

@@ -104,6 +104,13 @@ html {
   color: #2f6fde;
 }
 
+.icon-button:disabled {
+  background: transparent;
+  color: #444;
+  opacity: 0.4;
+  cursor: default;
+}
+
 .toolbar {
   display: flex;
   align-items: center;
@@ -135,6 +142,105 @@ html {
 .button[aria-disabled='true'] {
   opacity: 0.6;
   cursor: default;
+}
+
+/* Home page: calendar above the list on narrow screens; the wide layout
+   is in the 768px media query below. DOM order is calendar -> list. */
+.home-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.calendar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.calendar-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.calendar-title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 1.1rem;
+  text-align: center;
+}
+
+.calendar-today {
+  margin-left: 8px;
+  padding: 6px 12px;
+}
+
+.calendar-grid {
+  width: 100%;
+  /* Equal columns regardless of content. */
+  table-layout: fixed;
+  border-collapse: collapse;
+  text-align: center;
+}
+
+.calendar-grid th {
+  padding: 4px 0;
+  font-size: 0.85rem;
+  font-weight: normal;
+  color: #666;
+}
+
+.calendar-grid td {
+  padding: 2px 0;
+}
+
+/* One look for both the plain-text day and the button day; 40px keeps
+   every day comfortable to tap and fits 7 columns at 375px. */
+.calendar-day {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+/* Days with a diary: filled circle (decisions.md: 底色圓圈). */
+.calendar-day.has-entry {
+  background: #2f6fde;
+  color: #fff;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.calendar-day.has-entry:hover {
+  background: #2458b8;
+}
+
+.calendar-day.has-entry:focus-visible {
+  outline: 2px solid #2f6fde;
+  outline-offset: 2px;
+}
+
+/* Today: outline only, so it combines with the filled mark. */
+.calendar-day.is-today {
+  border-color: #e08600;
+}
+
+/* On a filled day the border alone is hard to see; add an outer ring
+   separated from the fill by a page-coloured gap. */
+.calendar-day.has-entry.is-today {
+  box-shadow: 0 0 0 2px #fafafa, 0 0 0 4px #e08600;
+}
+
+.calendar-day.has-entry.is-today:focus-visible {
+  outline-offset: 6px;
 }
 
 .entries {
@@ -351,8 +457,18 @@ html {
    only this page widens the app container so both stay usable. Narrower
    screens keep the stacked layout above. */
 @media (min-width: 768px) {
-  :root:has(.entry-layout) {
+  :root:has(.entry-layout),
+  :root:has(.home-layout) {
     --page-width: 1120px;
+  }
+
+  /* Home page (decisions.md Phase 3 日曆): calendar column on the left,
+     the diary list takes the rest. */
+  .home-layout {
+    display: grid;
+    grid-template-columns: 320px minmax(0, 1fr);
+    gap: 32px;
+    align-items: start;
   }
 
   .entry-layout {
