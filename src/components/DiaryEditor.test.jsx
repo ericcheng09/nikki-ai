@@ -737,3 +737,20 @@ describe('DiaryEditor (language)', () => {
     })
   })
 })
+
+describe('DiaryEditor (layout)', () => {
+  it('wraps the form and the AI panel, in that order, for a saved entry', () => {
+    renderEditor(existing)
+    const form = saveButton().closest('form')
+    const layout = form.parentElement
+    expect(layout).toHaveClass('entry-layout')
+    const panel = screen.getByRole('region', { name: 'AI 批改結果' })
+    expect(Array.from(layout.children)).toEqual([form, panel])
+  })
+
+  it('has no two-column layout for a new entry', () => {
+    renderEditor()
+    expect(document.querySelector('.entry-layout')).toBeNull()
+    expect(screen.queryByRole('region', { name: 'AI 批改結果' })).not.toBeInTheDocument()
+  })
+})

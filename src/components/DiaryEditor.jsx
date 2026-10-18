@@ -204,7 +204,9 @@ export default function DiaryEditor({ entry }) {
   }
 
   return (
-    <>
+    // Saved entries get the form + AI panel layout (two columns from 768px,
+    // see index.css); DOM order stays form -> panel for reading/tab order.
+    <div className={isEdit ? 'entry-layout' : undefined}>
       <form className="diary-editor" onSubmit={handleSubmit} noValidate>
         <h2>{isEdit ? '編輯日記' : '新增日記'}</h2>
 
@@ -285,6 +287,6 @@ export default function DiaryEditor({ entry }) {
           onAnalyzed={handleAnalyzed}
         />
       )}
-    </>
+    </div>
   )
 }

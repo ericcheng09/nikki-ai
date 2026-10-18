@@ -208,6 +208,28 @@ body {
   margin: 0;
 }
 
+/* Entry page with the AI panel (decisions.md 畫面): from 768px the form
+   and the panel sit side by side in two equal, top-aligned columns, and
+   only this page widens the app container so both stay usable. Narrower
+   screens keep the stacked layout above. */
+@media (min-width: 768px) {
+  .app:has(.entry-layout) {
+    max-width: 1120px;
+  }
+
+  .entry-layout {
+    display: grid;
+    /* minmax(0, 1fr): long unbroken text wraps instead of widening a column. */
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 32px;
+    align-items: start;
+  }
+
+  .entry-layout > .ai-review {
+    margin-top: 0;
+  }
+}
+
 .analysis-view {
   display: flex;
   flex-direction: column;
