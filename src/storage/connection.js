@@ -10,6 +10,7 @@ import {
   putEntryAnalysis,
   putEntryEdit,
   removeCustomLanguage,
+  addCustomLanguage,
   getSettings,
   saveSettings,
 } from './db.js'
@@ -82,6 +83,12 @@ export async function loadEntry(id) {
 // replaced by a tombstone, which drops content and analysis immediately.
 export async function deleteEntry(entry) {
   await saveEntry(softDeleteEntry(entry))
+}
+
+// Adds a custom language to the list right away (editor's 「加入」) and
+// resolves with the active names; see addCustomLanguage in db.js.
+export async function saveCustomLanguage(name) {
+  return addCustomLanguage(await getDb(), name)
 }
 
 // Soft-deletes a custom language and resolves with the remaining active

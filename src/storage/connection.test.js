@@ -10,6 +10,7 @@ import {
   saveEntryAnalysis,
   saveEntryEdit,
   deleteCustomLanguage,
+  saveCustomLanguage,
   loadSettings,
   updateSettings,
   isWelcomeSeenThisSession,
@@ -145,6 +146,22 @@ describe('deleteCustomLanguage', () => {
 
   it('resolves with the unchanged list for an unknown name', async () => {
     await expect(deleteCustomLanguage('不存在')).resolves.toEqual([])
+  })
+})
+
+describe('saveCustomLanguage', () => {
+  it('adds the language through the shared connection', async () => {
+    await updateSettings({ customLanguages: [] })
+    await expect(saveCustomLanguage('韓文')).resolves.toEqual(['韓文'])
+    const [stored] = (await loadSettings()).customLanguages
+    expect(stored).toMatchObject({ name: '韓文', deleted: false })
+    await updateSettings({ customLanguages: [] })
+  })
+
+  it('leaves the list unchanged for a built-in name', async () => {
+    await updateSettings({ customLanguages: [] })
+    await expect(saveCustomLanguage('日文')).resolves.toEqual([])
+    expect((await loadSettings()).customLanguages).toEqual([])
   })
 })
 

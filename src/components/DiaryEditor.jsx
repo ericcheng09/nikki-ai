@@ -19,6 +19,7 @@ import {
   deleteEntry,
   loadSettings,
   saveEntry,
+  saveCustomLanguage,
   saveEntryAddingLanguage,
   saveEntryEdit,
 } from '../storage/connection.js'
@@ -40,7 +41,7 @@ export default function DiaryEditor({ entry }) {
   // If loading fails it stays empty: built-ins and 其他 still work, and the
   // list itself is updated inside the save transaction, never from here.
   const [customLanguages, setCustomLanguages] = useState([])
-  // Languages this editor added through a save. A list load that finishes
+  // Languages this editor added (through 加入 or a save). A list load that finishes
   // after such a save may predate it, so these are re-applied on top of
   // the loaded list instead of being lost.
   const addedLanguagesRef = useRef([])
@@ -104,6 +105,54 @@ export default function DiaryEditor({ entry }) {
   function clearMessages() {
     setError('')
     setNotice('')
+  }
+
+  // 「加入」 (or Enter) in the 「語言名稱」 input: adds the typed language to
+  // the list right away, even if the diary is never saved, and selects it
+  // (decisions.md Phase 2 日記語言). Resolves with true when the input
+  // closed with a language selected. The entry itself is not saved, so in
+  // edit mode the changed language counts as an unsaved change.
+  async function handleAddLanguage() {
+    if (busyRef.current) return false
+    const resolved = resolveLanguageInput(otherLanguage)
+    if (!resolved) {
+      setNotice('')
+      setError('請輸入日記語言')
+      return false
+    }
+    if (!resolved.isCustom) {
+      // 日文 / 英文 / auto / 自動判斷 just pick the existing option.
+      clearMessages()
+      setLanguage(resolved.language)
+      setOtherLanguage('')
+      return true
+    }
+    if (!lock()) return false
+    clearMessages()
+    const name = resolved.language
+    try {
+      // The list is updated inside one storage transaction; the returned
+      // active names are the stored truth (they may include languages
+      // added in another tab).
+      const activeNames = await saveCustomLanguage(name)
+      addedLanguagesRef.current = [...addedLanguagesRef.current, name]
+      // Options only need the active names, so plain records suffice.
+      setCustomLanguages(
+        addLanguage(
+          activeNames.map((active) => ({ name: active, deleted: false })),
+          name,
+        ),
+      )
+      setLanguage(name)
+      setOtherLanguage('')
+      unlock()
+      return true
+    } catch {
+      // Not logged on purpose. The input stays open with the typed text.
+      setError('無法儲存設定，請重新整理頁面後再試一次。')
+      unlock()
+      return false
+    }
   }
 
   async function handleSubmit(event) {
@@ -236,6 +285,8 @@ export default function DiaryEditor({ entry }) {
             setOtherLanguage(value)
             clearMessages()
           }}
+          onAdd={handleAddLanguage}
+          adding={busy}
         />
 
         <label className="field">

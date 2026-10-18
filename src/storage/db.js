@@ -258,6 +258,35 @@ export function putEntryAnalysis(db, id, analysis, { now = new Date() } = {}) {
   })
 }
 
+// Adds a custom language right away, without saving an entry (editor's
+// 「加入」 button, decisions.md Phase 2 日記語言). Like removeCustomLanguage,
+// the list is read and written inside one readwrite transaction, so a
+// stale copy in the UI cannot overwrite it. A soft-deleted name is revived
+// in place (see addLanguage). Auto, built-in, blank and already-active
+// names write nothing. Resolves with the active names after the call.
+export function addCustomLanguage(db, name, { now = new Date() } = {}) {
+  return runTransaction(db, SETTINGS_STORE, 'readwrite', (tx) => {
+    const settings = tx.objectStore(SETTINGS_STORE)
+    const request = settings.get('customLanguages')
+    let activeNames = []
+    request.onsuccess = () => {
+      try {
+        const current = request.result ?? []
+        activeNames = activeLanguageNames(current)
+        const resolved = resolveLanguageInput(name)
+        if (!resolved?.isCustom || activeNames.includes(resolved.language)) return
+        const next = addLanguage(current, resolved.language, { now })
+        settings.put(next, 'customLanguages')
+        activeNames = activeLanguageNames(next)
+      } catch {
+        // See putEntryAddingLanguage: abort instead of an uncaught error.
+        tx.abort()
+      }
+    }
+    return () => activeNames
+  })
+}
+
 // Soft-deletes a custom language (settings page, spec 3.6). Like
 // putEntryAddingLanguage, the list is read and written inside one
 // transaction so a stale copy in the UI cannot overwrite it. Entries are

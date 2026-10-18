@@ -6,6 +6,7 @@ import {
   startApp,
   writeStore,
   backButton,
+  installGeminiMock,
 } from './helpers.js'
 
 // E2E for Phase 2 T4: diary language selection in the editor
@@ -359,5 +360,331 @@ test.describe('diary language', () => {
     await expect(page).toHaveURL(HOME_URL)
     await expect(page.locator('ul.entries > li')).toHaveCount(1)
     await expect(page.locator('ul.entries .entry-preview')).toHaveText('Entry in Korean')
+  })
+})
+
+// --- Phase 2 F3: 「加入」 button next to 「語言名稱」 -------------------------
+// (decisions.md Phase 2 日記語言): adds the typed language to the list right
+// away, even if the diary is never saved, and selects it.
+
+const NEW_URL = /\/nikki-ai\/entry\/new$/
+const addButton = (page) => page.getByRole('button', { name: '加入', exact: true })
+const deleteButton = (page) => page.getByRole('button', { name: '刪除', exact: true })
+const reviewPanel = (page) => page.getByRole('region', { name: 'AI 批改結果' })
+const languageList = (page) => page.getByRole('region', { name: '語言清單' })
+
+async function chooseOther(page, text) {
+  await languageSelect(page).selectOption({ label: '其他' })
+  await otherInput(page).fill(text)
+}
+
+// Keeps a readwrite transaction on the settings store open (by chaining
+// requests) so the app's 加入 transaction waits until releaseSettings().
+async function holdSettings(page) {
+  await page.evaluate(
+    () =>
+      new Promise((resolve, reject) => {
+        const open = indexedDB.open('nikki-ai')
+        open.onerror = () => reject(open.error)
+        open.onsuccess = () => {
+          const db = open.result
+          window.__holdSettings = true
+          const store = db.transaction('settings', 'readwrite').objectStore('settings')
+          const spin = () => {
+            if (!window.__holdSettings) {
+              db.close()
+              return
+            }
+            store.get('__hold__').onsuccess = spin
+          }
+          spin()
+          resolve()
+        }
+      }),
+  )
+}
+
+async function releaseSettings(page) {
+  await page.evaluate(() => {
+    window.__holdSettings = false
+  })
+}
+
+test.describe('diary language: 加入', () => {
+  test('the 加入 button sits next to 語言名稱 only while 其他 is chosen', async ({ page }) => {
+    await startApp(page)
+    await openNew(page)
+    await expect(addButton(page)).toHaveCount(0)
+    await languageSelect(page).selectOption({ label: '其他' })
+    await expect(addButton(page)).toBeVisible()
+    await expect(addButton(page)).toBeEnabled()
+    const inputBox = await otherInput(page).boundingBox()
+    const buttonBox = await addButton(page).boundingBox()
+    // Same row, to the right of the input.
+    expect(buttonBox.x).toBeGreaterThanOrEqual(inputBox.x + inputBox.width - 1)
+    expect(Math.abs(buttonBox.y + buttonBox.height / 2 - (inputBox.y + inputBox.height / 2))).toBeLessThanOrEqual(4)
+    await languageSelect(page).selectOption({ label: '日文' })
+    await expect(addButton(page)).toHaveCount(0)
+  })
+
+  test('加入 on a new entry adds, selects and focuses without saving the diary', async ({ page }) => {
+    await startApp(page)
+    await openNew(page)
+    await contentInput(page).fill('오늘은 좋은 날이에요.')
+    await chooseOther(page, '  韓文 ')
+    await addButton(page).click()
+
+    await expect.poll(() => selectedLabel(page)).toBe('韓文')
+    await expect(otherInput(page)).toHaveCount(0)
+    await expect(languageSelect(page)).toBeFocused()
+    await expect(errorAlert(page)).toHaveCount(0)
+    await expectOptions(page, [...BASE_OPTIONS, '韓文', '其他'])
+    await expect(page).toHaveURL(NEW_URL)
+    await expect(contentInput(page)).toHaveValue('오늘은 좋은 날이에요.')
+    await expect.poll(() => storedLanguages(page)).toEqual([activeRecord('韓文')])
+    expect(await storedEntries(page)).toEqual([])
+
+    // Leave without saving: the settings page lists it, still no entry.
+    await page.goto('./settings')
+    await expect(languageList(page).locator('li .language-name')).toHaveText(['韓文'])
+    expect(await storedEntries(page)).toEqual([])
+    // A later new entry offers it.
+    await openNew(page)
+    await expectOptions(page, [...BASE_OPTIONS, '韓文', '其他'])
+  })
+
+  test('Enter in 語言名稱 acts as 加入 and does not submit the diary', async ({ page }) => {
+    await startApp(page)
+    await openNew(page)
+    await contentInput(page).fill('Bonjour')
+    await chooseOther(page, '法文')
+    await otherInput(page).press('Enter')
+
+    await expect.poll(() => selectedLabel(page)).toBe('法文')
+    await expect(otherInput(page)).toHaveCount(0)
+    await expect(languageSelect(page)).toBeFocused()
+    await expect.poll(() => storedLanguages(page)).toEqual([activeRecord('法文')])
+    await expect(page).toHaveURL(NEW_URL)
+    await expect(page.getByRole('heading', { level: 2, name: '新增日記' })).toBeVisible()
+    await expect(notice(page)).not.toHaveText('已儲存')
+    expect(await storedEntries(page)).toEqual([])
+
+    // Saving afterwards uses it as a normal option, the list is unchanged.
+    const listBefore = await storedLanguages(page)
+    await saveButton(page).click()
+    await expect(page).toHaveURL(ENTRY_URL)
+    const [entry] = await storedEntries(page)
+    expect(entry.language).toBe('法文')
+    expect(await storedLanguages(page)).toEqual(listBefore)
+  })
+
+  test('an IME-confirming Enter (isComposing or keyCode 229) adds and submits nothing', async ({
+    page,
+  }) => {
+    await startApp(page)
+    await openNew(page)
+    await contentInput(page).fill('안녕')
+    await chooseOther(page, '韓文')
+    // Synthetic keydowns as browsers fire them when Enter confirms an IME
+    // candidate: isComposing (most browsers) or only keyCode 229 (Safari).
+    const dispatchEnter = (init) =>
+      otherInput(page).evaluate((el, { isComposing, keyCode }) => {
+        const event = new KeyboardEvent('keydown', {
+          key: 'Enter',
+          code: 'Enter',
+          bubbles: true,
+          cancelable: true,
+          isComposing,
+        })
+        Object.defineProperty(event, 'keyCode', { get: () => keyCode })
+        Object.defineProperty(event, 'which', { get: () => keyCode })
+        return el.dispatchEvent(event)
+      }, init)
+    await dispatchEnter({ isComposing: true, keyCode: 229 })
+    await dispatchEnter({ isComposing: false, keyCode: 229 })
+    // Give a wrongly started 加入 or submit time to show up.
+    await page.waitForTimeout(300)
+    await expect(otherInput(page)).toHaveValue('韓文')
+    expect(await selectedLabel(page)).toBe('其他')
+    await expect(errorAlert(page)).toHaveCount(0)
+    await expect(page).toHaveURL(NEW_URL)
+    expect(await storedLanguages(page)).toEqual([])
+    expect(await storedEntries(page)).toEqual([])
+
+    // Control: the same synthetic event with keyCode 13 is a real Enter (加入).
+    await dispatchEnter({ isComposing: false, keyCode: 13 })
+    await expect.poll(() => selectedLabel(page)).toBe('韓文')
+    await expect.poll(() => storedLanguages(page)).toEqual([activeRecord('韓文')])
+    await expect(page).toHaveURL(NEW_URL)
+    expect(await storedEntries(page)).toEqual([])
+  })
+
+  test('a failed 加入 click returns focus to 語言名稱', async ({ page }) => {
+    await startApp(page)
+    await openNew(page)
+    await chooseOther(page, '  ')
+    await addButton(page).click()
+    await expect(errorAlert(page)).toHaveText('請輸入日記語言')
+    await expect(otherInput(page)).toBeFocused()
+  })
+
+  test('blank name: 請輸入日記語言, the input stays open, nothing stored', async ({ page }) => {
+    await startApp(page)
+    await openNew(page)
+    for (const text of ['', '   ']) {
+      await chooseOther(page, text)
+      await addButton(page).click()
+      await expect(errorAlert(page)).toHaveText('請輸入日記語言')
+      await expect(otherInput(page)).toBeVisible()
+      await expect(otherInput(page)).toHaveValue(text)
+      await expect.poll(() => selectedLabel(page)).toBe('其他')
+      // Enter behaves the same.
+      await otherInput(page).press('Enter')
+      await expect(errorAlert(page)).toHaveText('請輸入日記語言')
+      await expect(page).toHaveURL(NEW_URL)
+    }
+    expect(await storedLanguages(page)).toEqual([])
+    expect(await storedEntries(page)).toEqual([])
+  })
+
+  test('日文 / 英文 / auto / 自動判斷 select that option and add nothing', async ({ page }) => {
+    await startApp(page)
+    await openNew(page)
+    const cases = [
+      ['日文', '日文'],
+      [' 英文 ', '英文'],
+      ['auto', '自動判斷'],
+      [' 自動判斷', '自動判斷'],
+    ]
+    for (const [typed, label] of cases) {
+      await chooseOther(page, typed)
+      await addButton(page).click()
+      await expect.poll(() => selectedLabel(page), typed).toBe(label)
+      await expect(otherInput(page)).toHaveCount(0)
+      await expect(errorAlert(page)).toHaveCount(0)
+    }
+    expect(await storedLanguages(page)).toEqual([])
+    expect(await storedEntries(page)).toEqual([])
+    await expectOptions(page, [...BASE_OPTIONS, '其他'])
+  })
+
+  test('re-adding an active name adds nothing; a deleted name is revived in place', async ({
+    page,
+  }) => {
+    await startApp(page)
+    const korean = {
+      name: '韓文',
+      updatedAt: '2026-10-02T00:00:00.000Z',
+      deleted: false,
+      deletedAt: null,
+    }
+    const french = {
+      name: '法文',
+      updatedAt: '2026-10-03T00:00:00.000Z',
+      deleted: true,
+      deletedAt: '2026-10-03T00:00:00.000Z',
+    }
+    await writeStore(page, 'settings', { customLanguages: [korean, french] })
+    await openNew(page)
+    await expectOptions(page, [...BASE_OPTIONS, '韓文', '其他'])
+
+    // Active: selected, record untouched.
+    await chooseOther(page, '韓文')
+    await addButton(page).click()
+    await expect.poll(() => selectedLabel(page)).toBe('韓文')
+    await expect(otherInput(page)).toHaveCount(0)
+    await expectOptions(page, [...BASE_OPTIONS, '韓文', '其他'])
+    expect(await storedLanguages(page)).toEqual([korean, french])
+
+    // Deleted: the same record comes back (same position, new updatedAt).
+    await chooseOther(page, '法文')
+    await addButton(page).click()
+    await expect.poll(() => selectedLabel(page)).toBe('法文')
+    await expectOptions(page, [...BASE_OPTIONS, '韓文', '法文', '其他'])
+    await expect.poll(async () => (await storedLanguages(page))[1].deleted).toBe(false)
+    const list = await storedLanguages(page)
+    expect(list).toEqual([korean, activeRecord('法文')])
+    expect(list[1].updatedAt > french.updatedAt).toBe(true)
+    expect(await storedEntries(page)).toEqual([])
+  })
+
+  test('saving with 其他 still open (no 加入) adds the language on save', async ({ page }) => {
+    await startApp(page)
+    await openNew(page)
+    await contentInput(page).fill('สวัสดี')
+    await chooseOther(page, ' 泰文 ')
+    await saveButton(page).click()
+    await expect(page).toHaveURL(ENTRY_URL)
+    await expect.poll(() => selectedLabel(page)).toBe('泰文')
+    await expect(otherInput(page)).toHaveCount(0)
+    const [entry] = await storedEntries(page)
+    expect(entry.language).toBe('泰文')
+    expect(await storedLanguages(page)).toEqual([activeRecord('泰文')])
+  })
+
+  test('edit mode: 加入 is an unsaved change until the diary is saved', async ({ page }) => {
+    const gemini = await installGeminiMock(page)
+    await startApp(page)
+    await writeStore(page, 'settings', {
+      geminiApiKey: 'test-key-123',
+      geminiModel: 'models/gemini-2.5-flash',
+    })
+    const id = await createWith(page, '안녕하세요', { language: '日文' })
+    const before = (await storedEntries(page)).find((e) => e.id === id)
+
+    await chooseOther(page, '韓文')
+    await addButton(page).click()
+    await expect.poll(() => selectedLabel(page)).toBe('韓文')
+    await expect.poll(() => storedLanguages(page)).toEqual([activeRecord('韓文')])
+    // The entry itself is not saved by 加入.
+    expect((await storedEntries(page)).find((e) => e.id === id)).toEqual(before)
+
+    const review = reviewPanel(page).getByRole('button', { name: 'AI 批改', exact: true })
+    await review.click()
+    await expect(reviewPanel(page).getByRole('alert')).toHaveText('請先儲存日記再批改')
+    expect(gemini.generateRequests).toEqual([])
+
+    // After saving, the review runs (mocked).
+    await saveButton(page).click()
+    await expect(notice(page)).toHaveText('已儲存')
+    expect((await storedEntries(page)).find((e) => e.id === id).language).toBe('韓文')
+    await review.click()
+    await expect(reviewPanel(page).getByRole('region', { name: '中文翻譯' })).toBeVisible()
+    expect(gemini.generateRequests).toHaveLength(1)
+  })
+
+  test('while 加入 runs, 儲存 / 刪除 / 加入 are disabled and repeats add once', async ({ page }) => {
+    await startApp(page)
+    const id = await createWith(page, 'Hola')
+    await chooseOther(page, '西班牙文')
+
+    await holdSettings(page)
+    await addButton(page).click()
+    await expect(addButton(page)).toBeDisabled()
+    await expect(saveButton(page)).toBeDisabled()
+    await expect(deleteButton(page)).toBeDisabled()
+    // Further attempts while busy are ignored.
+    await addButton(page).dispatchEvent('click')
+    await otherInput(page).press('Enter')
+    await releaseSettings(page)
+
+    await expect.poll(() => selectedLabel(page)).toBe('西班牙文')
+    await expect(otherInput(page)).toHaveCount(0)
+    await expect(saveButton(page)).toBeEnabled()
+    await expect(deleteButton(page)).toBeEnabled()
+    await expect(errorAlert(page)).toHaveCount(0)
+    expect(await storedLanguages(page)).toEqual([activeRecord('西班牙文')])
+    expect((await storedEntries(page)).find((e) => e.id === id).deleted).toBe(false)
+  })
+
+  test('a double click on 加入 adds the language once', async ({ page }) => {
+    await startApp(page)
+    await openNew(page)
+    await chooseOther(page, '德文')
+    await addButton(page).dblclick()
+    await expect.poll(() => selectedLabel(page)).toBe('德文')
+    await expect(errorAlert(page)).toHaveCount(0)
+    await expect.poll(() => storedLanguages(page)).toEqual([activeRecord('德文')])
+    await expectOptions(page, [...BASE_OPTIONS, '德文', '其他'])
   })
 })
