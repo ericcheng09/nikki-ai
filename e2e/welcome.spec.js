@@ -27,8 +27,18 @@ async function openGuideFromMenu(page) {
 async function expectWelcomeContent(page) {
   await expect(page.getByRole('heading', { level: 2, name: '歡迎使用外語學習日記' })).toBeVisible()
   await expect(page.getByRole('heading', { level: 3, name: '這個 App 可以做什麼' })).toBeVisible()
-  await expect(page.getByText(/^寫日記：/)).toBeVisible()
-  await expect(page.getByText(/AI 批改功能即將推出/)).toBeVisible()
+  // Four feature items, in this order (user-approved wording).
+  const features = page.getByRole('region', { name: '這個 App 可以做什麼' }).getByRole('listitem')
+  await expect(features).toHaveText([
+    /^寫日記：.*只有在你按「AI 批改」時，那篇日記的內容才會送到 Google Gemini。$/,
+    /^選擇語言：/,
+    /^AI 批改：/,
+    /^使用前準備：.*key 只會存在這個瀏覽器，只用來呼叫 Gemini。$/,
+  ])
+  await expect(page.getByText('以下用一篇日文日記，示範 AI 批改的結果。', { exact: true })).toBeVisible()
+  await expect(page.getByText(/即將推出/)).toHaveCount(0)
+  // The sample is read-only: no review button here.
+  await expect(page.getByRole('button', { name: 'AI 批改' })).toHaveCount(0)
   await expect(page.getByText(SAMPLE_CONTENT, { exact: true })).toBeVisible()
   for (const name of ANALYSIS_SECTIONS) {
     await expect(page.getByRole('region', { name })).toBeVisible()
