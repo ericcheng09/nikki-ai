@@ -134,12 +134,13 @@ test.describe('entry page layout', () => {
     await seedEntry(page)
     await openEntry(page)
     await expectSideBySide(page)
+    // The 內容 box refits to the new width one frame after a resize (F9),
+    // so the form height can still change between two measurements: retry
+    // until the layout has settled.
     await page.setViewportSize({ width: 600, height: 900 })
-    await expect.poll(async () => (await boxes(page)).panel.y > (await boxes(page)).form.y + 10).toBe(true)
-    await expectStacked(page)
+    await expect(() => expectStacked(page)).toPass({ timeout: 5000 })
     await page.setViewportSize({ width: 900, height: 900 })
-    await expect.poll(async () => Math.abs((await boxes(page)).panel.y - (await boxes(page)).form.y) <= 4).toBe(true)
-    await expectSideBySide(page)
+    await expect(() => expectSideBySide(page)).toPass({ timeout: 5000 })
   })
 
   test('DOM and tab order stay form, then panel (side by side)', async ({ page }) => {

@@ -53,24 +53,44 @@ test('acceptance 8.2: key → model → custom-language diary → AI review → 
   await page.setViewportSize({ width: 1280, height: 900 })
   await startApp(page)
 
-  // 8.2-1 / 8.2-12: set the key in settings; a Flash model is auto-selected.
+  // 8.2-1 / 8.2-12: set the key in settings (top bar); without a key the
+  // guide is expanded; a Flash model is auto-selected.
   await settingsIcon(page).click()
   const keySection = page.getByRole('region', { name: 'Gemini API key' })
-  await expect(keySection.getByRole('heading', { name: '如何取得 API key' })).toBeVisible()
+  const guideToggle = keySection.getByRole('button', { name: '？如何取得' })
+  const guide = page.getByRole('region', { name: '如何取得 API key' })
+  await expect(guide).toBeVisible()
+  await expect(guideToggle).toHaveAttribute('aria-expanded', 'true')
+  await expect(guide.locator('a[href="https://aistudio.google.com/apikey"]')).toBeVisible()
   await keySection.getByLabel('API key', { exact: true }).fill(FAKE_KEY)
   await keySection.getByRole('button', { name: '儲存' }).click()
   await expect(keySection.locator('form').getByRole('status')).toHaveText('已儲存')
   await expect(keySection.getByText('API key 可以使用', { exact: true })).toBeVisible()
   const modelSelect = page.getByRole('region', { name: 'Gemini 模型' }).getByLabel('模型', { exact: true })
   await expect(modelSelect).toHaveValue('models/gemini-2.5-flash')
+  // With a key saved, the page opens with the guide collapsed; it can be opened.
+  await page.reload()
+  await expect(keySection.getByText('API key 可以使用', { exact: true })).toBeVisible()
+  await expect(guide).toHaveCount(0)
+  await expect(guideToggle).toHaveAttribute('aria-expanded', 'false')
+  await guideToggle.click()
+  await expect(guide).toBeVisible()
 
   // 8.2-4: write a diary with a custom language (其他 → 韓文).
   await backButton(page).click()
   await expect(page).toHaveURL(HOME_URL)
   await page.getByRole('link', { name: '新增日記' }).click()
   await page.getByLabel('內容').fill(FIRST_TEXT)
-  await page.getByLabel('語言', { exact: true }).selectOption({ label: '其他' })
+  const languageSelect = page.getByLabel('語言', { exact: true })
+  await languageSelect.selectOption({ label: '其他' })
   await page.getByLabel('語言名稱', { exact: true }).fill('韓文')
+  await page.getByRole('button', { name: '加入', exact: true }).click()
+  await expect(languageSelect.locator('option:checked')).toHaveText('韓文')
+  await expect(languageSelect).toBeFocused()
+  // Added to the list before the diary is saved.
+  await expect
+    .poll(async () => ((await readStore(page, 'settings')).customLanguages ?? []).map((l) => l.name))
+    .toEqual(['韓文'])
   await page.getByRole('button', { name: '儲存' }).click()
   await expect(page).toHaveURL(ENTRY_URL)
   const id = new URL(page.url()).pathname.split('/').pop()
@@ -102,6 +122,10 @@ test('acceptance 8.2: key → model → custom-language diary → AI review → 
   let stored = (await readStore(page, 'entries')).find((e) => e.id === id)
   expect(stored.content).toBe(FIRST_TEXT)
   expect(stored.language).toBe('韓文')
+  await page.getByLabel('內容').fill(`${SECOND_TEXT}\n`.repeat(20))
+  // The 內容 box grows with the text (no inner scroll).
+  const fits = await page.getByLabel('內容').evaluate((el) => el.scrollHeight <= el.clientHeight + 1)
+  expect(fits).toBe(true)
   await page.getByLabel('內容').fill(SECOND_TEXT)
   await page.getByRole('button', { name: '儲存' }).click()
   await expect(form(page).getByRole('status')).toHaveText('已儲存')
