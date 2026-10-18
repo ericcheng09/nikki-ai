@@ -3,13 +3,40 @@ import { loadSettings, updateSettings } from '../storage/connection.js'
 
 const AI_STUDIO_URL = 'https://aistudio.google.com/apikey'
 
+// Status line for a saved key, from the shared models.list request
+// (decisions.md Phase 2 設定頁). `retry`: offer 重新確認, i.e. the key may
+// be fine and only the check failed.
+function keyCheckLine(keyCheck) {
+  switch (keyCheck?.status) {
+    case 'success':
+      return { text: 'API key 可以使用', className: 'success', retry: false }
+    case 'error':
+      if (keyCheck.errorCode === 'invalidKey') {
+        return { text: 'API key 無效，請確認後重新儲存。', className: 'error', retry: false }
+      }
+      if (keyCheck.errorCode === 'network') {
+        return {
+          text: '無法確認 API key，請檢查網路後再試一次。',
+          className: 'error',
+          retry: true,
+        }
+      }
+      // Quota, server errors, malformed responses, ...
+      return { text: '無法確認 API key，請稍後再試。', className: 'error', retry: true }
+    default:
+      // loading, or the request has not started yet
+      return { text: '正在確認 API key…', className: 'muted', retry: false }
+  }
+}
+
 // Gemini API key section of the settings page (spec 3.6, 5.1).
 // The key is only kept in IndexedDB; it never appears in messages and is
 // never logged (spec 5.4), so every catch below stays silent.
 // `onKeyChange(key)` is called with the stored key once it is loaded and
 // after every successful save or delete ('' = no key), so the page can
-// show or refresh the model section.
-export default function ApiKeySettings({ onKeyChange }) {
+// (re)check it. `keyCheck` is that check's state (see useModelQuery) and
+// `onRetry()` runs it again.
+export default function ApiKeySettings({ onKeyChange, keyCheck, onRetry }) {
   // status: 'loading' | 'ready' | 'error'
   const [status, setStatus] = useState('loading')
   // The key currently stored; '' means not set.
@@ -21,13 +48,37 @@ export default function ApiKeySettings({ onKeyChange }) {
   const [busy, setBusy] = useState(false)
   // Synchronous lock against double clicks before React re-renders.
   const busyRef = useRef(false)
+  // True from a 重新確認 click until that check ends. Meanwhile the button
+  // stays rendered (but inert) so keyboard focus is not dropped to <body>.
+  const [retrying, setRetrying] = useState(false)
+  const checkLineRef = useRef(null)
   const inputId = useId()
+  const inputRef = useRef(null)
   // Kept in a ref so the load effect does not re-run when the parent
   // passes a new callback on every render.
   const onKeyChangeRef = useRef(onKeyChange)
   useEffect(() => {
     onKeyChangeRef.current = onKeyChange
   })
+
+  const checkStatus = keyCheck?.status
+  const checkRetryable = keyCheckLine(keyCheck).retry
+  // Set once the retried check is seen loading, so the old result still
+  // on screen right after the click does not count as its outcome.
+  const retryStartedRef = useRef(false)
+  useEffect(() => {
+    if (!retrying) return
+    if (checkStatus === 'loading') {
+      retryStartedRef.current = true
+      return
+    }
+    if (!retryStartedRef.current) return
+    retryStartedRef.current = false
+    setRetrying(false)
+    // Failed again with 重新確認 offered: the button stays, focus with it.
+    // Otherwise the button goes away; hand focus to the result line.
+    if (!checkRetryable) checkLineRef.current?.focus()
+  }, [retrying, checkStatus, checkRetryable])
 
   useEffect(() => {
     let active = true
@@ -58,6 +109,9 @@ export default function ApiKeySettings({ onKeyChange }) {
     if (busyRef.current) return false
     busyRef.current = true
     setBusy(true)
+    // A save starts its own check; focus stays on the form, not the line.
+    setRetrying(false)
+    retryStartedRef.current = false
     clearMessages()
     try {
       await updateSettings({ geminiApiKey: key })
@@ -89,10 +143,24 @@ export default function ApiKeySettings({ onKeyChange }) {
 
   async function handleDelete() {
     // No confirmation dialog (decisions.md, Phase 2 設定頁).
-    if (await save('')) setNotice('已刪除')
+    if (await save('')) {
+      setNotice('已刪除')
+      // 刪除 disappears once no key is saved; keep focus in the section.
+      inputRef.current?.focus()
+    }
   }
 
   if (status === 'loading') return <p className="muted">載入中…</p>
+
+  const checkLine = keyCheckLine(keyCheck)
+  const retryPending = retrying
+  const showRetry = checkLine.retry || retryPending
+
+  function handleRetry() {
+    if (retryPending) return
+    setRetrying(true)
+    onRetry?.()
+  }
 
   return (
     <section className="settings-section" aria-labelledby="settings-api-key">
@@ -104,9 +172,29 @@ export default function ApiKeySettings({ onKeyChange }) {
         </p>
       ) : (
         <>
-          <p className="muted">
-            {savedKey ? '目前已設定 API key' : '尚未設定 API key'}
-          </p>
+          {savedKey ? (
+            <div className="key-check">
+              {/* A live region so the result of the check is announced. */}
+              {/* tabIndex -1: focus target once the 重新確認 button is gone. */}
+              <p className={checkLine.className} role="status" tabIndex={-1} ref={checkLineRef}>
+                {checkLine.text}
+              </p>
+              {showRetry && (
+                // aria-disabled instead of disabled: a disabled button may
+                // lose focus, which is what keeping it rendered avoids.
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  aria-disabled={retryPending}
+                  onClick={handleRetry}
+                >
+                  重新確認
+                </button>
+              )}
+            </div>
+          ) : (
+            <p className="muted">尚未設定 API key</p>
+          )}
 
           <form className="settings-form" onSubmit={handleSubmit} noValidate>
             <div className="field">
@@ -114,6 +202,7 @@ export default function ApiKeySettings({ onKeyChange }) {
               <div className="input-row">
                 <input
                   id={inputId}
+                  ref={inputRef}
                   type={visible ? 'text' : 'password'}
                   value={value}
                   autoComplete="off"
@@ -145,7 +234,10 @@ export default function ApiKeySettings({ onKeyChange }) {
             </p>
 
             <div className="actions">
-              <button type="submit" className="button" disabled={busy}>
+              {/* aria-disabled, not disabled, while saving: a disabled
+                  button can drop keyboard focus to <body>. Clicks and
+                  Enter are ignored meanwhile by the busyRef guard. */}
+              <button type="submit" className="button" aria-disabled={busy}>
                 儲存
               </button>
               {savedKey && (
@@ -153,7 +245,7 @@ export default function ApiKeySettings({ onKeyChange }) {
                   type="button"
                   className="button button-danger"
                   onClick={handleDelete}
-                  disabled={busy}
+                  aria-disabled={busy}
                 >
                   刪除
                 </button>

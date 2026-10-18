@@ -59,7 +59,8 @@ test('acceptance 8.2: key → model → custom-language diary → AI review → 
   await expect(keySection.getByRole('heading', { name: '如何取得 API key' })).toBeVisible()
   await keySection.getByLabel('API key', { exact: true }).fill(FAKE_KEY)
   await keySection.getByRole('button', { name: '儲存' }).click()
-  await expect(keySection.getByRole('status')).toHaveText('已儲存')
+  await expect(keySection.locator('form').getByRole('status')).toHaveText('已儲存')
+  await expect(keySection.getByText('API key 可以使用', { exact: true })).toBeVisible()
   const modelSelect = page.getByRole('region', { name: 'Gemini 模型' }).getByLabel('模型', { exact: true })
   await expect(modelSelect).toHaveValue('models/gemini-2.5-flash')
 

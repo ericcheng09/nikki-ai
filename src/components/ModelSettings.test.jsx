@@ -1,6 +1,8 @@
+import { useEffect } from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import ModelSettings from './ModelSettings.jsx'
 import { listModels } from '../lib/gemini.js'
+import useModelQuery from '../lib/useModelQuery.js'
 import { loadSettings, updateSettings } from '../storage/connection.js'
 
 vi.mock('../lib/gemini.js', () => ({ listModels: vi.fn() }))
@@ -39,6 +41,18 @@ function codedError(code) {
   return Object.assign(new Error(`Gemini request failed: ${code}`), { code })
 }
 
+// Wires the section like SettingsPage does: one shared query started with
+// the key, the section shown (and remounted per request) only while that
+// query is loading or succeeded.
+function Harness() {
+  const { state, start } = useModelQuery()
+  useEffect(() => {
+    start(KEY)
+  }, [start])
+  if (state.status !== 'loading' && state.status !== 'success') return null
+  return <ModelSettings key={state.requestId} query={state} />
+}
+
 let consoleSpies
 
 beforeEach(() => {
@@ -63,16 +77,18 @@ afterEach(() => {
 describe('ModelSettings', () => {
   it('shows a loading text while the list is queried with the key', async () => {
     vi.mocked(listModels).mockReturnValue(new Promise(() => {}))
-    render(<ModelSettings apiKey={KEY} />)
+    render(<Harness />)
     expect(screen.getByRole('heading', { name: 'Gemini 模型' })).toBeInTheDocument()
     expect(screen.getByText('正在取得模型清單…')).toBeInTheDocument()
-    await vi.waitFor(() => expect(listModels).toHaveBeenCalledWith(KEY))
+    await act(async () => {})
+    expect(listModels).toHaveBeenCalledWith(KEY)
+    expect(screen.getByText('正在取得模型清單…')).toBeInTheDocument()
   })
 
   it('lists models by displayName, falling back to name', async () => {
     withModel(PRO.name)
     vi.mocked(listModels).mockResolvedValue([PRO, LITE])
-    render(<ModelSettings apiKey={KEY} />)
+    render(<Harness />)
     const select = await screen.findByLabelText('模型')
     const options = Array.from(select.options).map((o) => o.textContent)
     expect(options).toEqual(['Gemini 2.5 Pro', 'models/gemini-2.0-flash-lite'])
@@ -82,7 +98,7 @@ describe('ModelSettings', () => {
 
   it('auto-selects and saves the first flash model when none is chosen', async () => {
     vi.mocked(listModels).mockResolvedValue([PRO, FLASH, LITE])
-    render(<ModelSettings apiKey={KEY} />)
+    render(<Harness />)
     const select = await screen.findByLabelText('模型')
     expect(select).toHaveValue(FLASH.name)
     expect(updateSettings).toHaveBeenCalledTimes(1)
@@ -92,7 +108,7 @@ describe('ModelSettings', () => {
   it('matches flash case-insensitively', async () => {
     // Only reachable through the fallback list (no main text model).
     vi.mocked(listModels).mockResolvedValue([EXP, UPPER_FLASH])
-    render(<ModelSettings apiKey={KEY} />)
+    render(<Harness />)
     expect(await screen.findByLabelText('模型')).toHaveValue(UPPER_FLASH.name)
     expect(updateSettings).toHaveBeenCalledWith({ geminiModel: UPPER_FLASH.name })
   })
@@ -100,14 +116,14 @@ describe('ModelSettings', () => {
   it('lists only stable main text models', async () => {
     withModel(PRO.name)
     vi.mocked(listModels).mockResolvedValue([FLASH_PREVIEW, PRO, EXP, FLASH])
-    render(<ModelSettings apiKey={KEY} />)
+    render(<Harness />)
     const select = await screen.findByLabelText('模型')
     expect(Array.from(select.options).map((o) => o.value)).toEqual([PRO.name, FLASH.name])
   })
 
   it('never auto-selects a hidden model', async () => {
     vi.mocked(listModels).mockResolvedValue([FLASH_PREVIEW, PRO])
-    render(<ModelSettings apiKey={KEY} />)
+    render(<Harness />)
     const select = await screen.findByLabelText('模型')
     expect(select).toHaveValue('')
     expect(updateSettings).not.toHaveBeenCalled()
@@ -115,7 +131,7 @@ describe('ModelSettings', () => {
 
   it('lists every model when no stable main text model is available', async () => {
     vi.mocked(listModels).mockResolvedValue([EXP, FLASH_PREVIEW])
-    render(<ModelSettings apiKey={KEY} />)
+    render(<Harness />)
     const select = await screen.findByLabelText('模型')
     expect(Array.from(select.options).map((o) => o.value)).toEqual([EXP.name, FLASH_PREVIEW.name])
     // Auto-selection works on the shown (fallback) list.
@@ -126,7 +142,7 @@ describe('ModelSettings', () => {
   it('keeps a saved hidden model selectable, without a warning', async () => {
     withModel(FLASH_PREVIEW.name)
     vi.mocked(listModels).mockResolvedValue([FLASH_PREVIEW, PRO, FLASH])
-    render(<ModelSettings apiKey={KEY} />)
+    render(<Harness />)
     const select = await screen.findByLabelText('模型')
     expect(Array.from(select.options).map((o) => o.value)).toEqual([
       PRO.name,
@@ -144,7 +160,7 @@ describe('ModelSettings', () => {
 
   it('selects nothing and asks the user to choose when no flash model exists', async () => {
     vi.mocked(listModels).mockResolvedValue([PRO])
-    render(<ModelSettings apiKey={KEY} />)
+    render(<Harness />)
     const select = await screen.findByLabelText('模型')
     expect(select).toHaveValue('')
     // Shown once, as the selected placeholder option.
@@ -156,7 +172,7 @@ describe('ModelSettings', () => {
 
   it('shows a save error when auto-selecting fails, and still lists models', async () => {
     vi.mocked(updateSettings).mockRejectedValue(new Error('boom'))
-    render(<ModelSettings apiKey={KEY} />)
+    render(<Harness />)
     const select = await screen.findByLabelText('模型')
     expect(select).toHaveValue('')
     expect(screen.getByRole('alert')).toHaveTextContent('無法儲存設定')
@@ -164,7 +180,7 @@ describe('ModelSettings', () => {
 
   it('saves immediately when the user picks a model', async () => {
     withModel(FLASH.name)
-    render(<ModelSettings apiKey={KEY} />)
+    render(<Harness />)
     const select = await screen.findByLabelText('模型')
     fireEvent.change(select, { target: { value: PRO.name } })
     expect(await screen.findByText('已儲存')).toBeInTheDocument()
@@ -175,7 +191,7 @@ describe('ModelSettings', () => {
   it('keeps the previous choice when saving a pick fails', async () => {
     withModel(FLASH.name)
     vi.mocked(updateSettings).mockRejectedValue(new Error('boom'))
-    render(<ModelSettings apiKey={KEY} />)
+    render(<Harness />)
     const select = await screen.findByLabelText('模型')
     fireEvent.change(select, { target: { value: PRO.name } })
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -186,7 +202,7 @@ describe('ModelSettings', () => {
 
   it('warns when the saved model is no longer available, without overwriting it', async () => {
     withModel('models/gemini-old')
-    render(<ModelSettings apiKey={KEY} />)
+    render(<Harness />)
     const select = await screen.findByLabelText('模型')
     expect(select).toHaveValue('')
     expect(screen.getByRole('alert')).toHaveTextContent(
@@ -199,47 +215,48 @@ describe('ModelSettings', () => {
     expect(screen.queryByText(/已無法使用/)).not.toBeInTheDocument()
   })
 
-  it.each([
-    ['invalidKey', 'API key 無效，請確認後重新儲存。'],
-    ['network', '無法連線到 Gemini，請檢查網路後再試一次。'],
-    ['other', '無法取得模型清單，請稍後再試。'],
-    [undefined, '無法取得模型清單，請稍後再試。'],
-    ['toString', '無法取得模型清單，請稍後再試。'],
-  ])('shows the %s query error with a 重新查詢 button', async (code, message) => {
+  it('shows nothing for a failed query and keeps the saved model', async () => {
+    // Errors and 重新確認 live in the API key section (SettingsPage).
     withModel(FLASH.name)
-    vi.mocked(listModels).mockRejectedValue(codedError(code))
-    render(<ModelSettings apiKey={KEY} />)
-    expect(await screen.findByRole('alert')).toHaveTextContent(message)
-    expect(screen.getByRole('button', { name: '重新查詢' })).toBeInTheDocument()
-    // The saved model is kept.
+    vi.mocked(listModels).mockRejectedValue(codedError('network'))
+    const { container } = render(<Harness />)
+    await act(async () => {})
+    expect(listModels).toHaveBeenCalledTimes(1)
+    expect(container).toBeEmptyDOMElement()
     expect(updateSettings).not.toHaveBeenCalled()
   })
 
-  it('queries again with 重新查詢', async () => {
-    withModel(FLASH.name)
-    vi.mocked(listModels).mockRejectedValueOnce(codedError('network'))
-    render(<ModelSettings apiKey={KEY} />)
-    fireEvent.click(await screen.findByRole('button', { name: '重新查詢' }))
-    expect(await screen.findByLabelText('模型')).toHaveValue(FLASH.name)
-    expect(listModels).toHaveBeenCalledTimes(2)
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  it('renders a given successful result without querying itself', async () => {
+    withModel(PRO.name)
+    render(<ModelSettings query={{ status: 'success', models: [PRO, FLASH], requestId: 1 }} />)
+    expect(await screen.findByLabelText('模型')).toHaveValue(PRO.name)
+    expect(listModels).not.toHaveBeenCalled()
+  })
+
+  it('shows the loading text while the given query is loading', async () => {
+    render(<ModelSettings query={{ status: 'loading', models: [], requestId: 1 }} />)
+    expect(screen.getByText('正在取得模型清單…')).toBeInTheDocument()
+    // Still loading once the saved model has been read.
+    await act(async () => {})
+    expect(screen.getByText('正在取得模型清單…')).toBeInTheDocument()
+    expect(screen.queryByLabelText('模型')).not.toBeInTheDocument()
   })
 
   it('shows a load error when settings cannot be read', async () => {
     vi.mocked(loadSettings).mockRejectedValue(new Error('boom'))
-    render(<ModelSettings apiKey={KEY} />)
+    render(<Harness />)
     expect(await screen.findByRole('alert')).toHaveTextContent('無法讀取設定，請重新整理頁面。')
-    expect(listModels).not.toHaveBeenCalled()
+    expect(screen.queryByLabelText('模型')).not.toBeInTheDocument()
   })
 
-  // Within one mount only one query runs at a time (重新查詢 appears only
-  // after a failure); a newer key remounts the component, so a stale
-  // response always arrives after unmount.
+  // Stale responses for a replaced key are covered in useModelQuery and
+  // SettingsPage tests; here the whole wiring goes away mid-request.
   it('drops a pending query result after unmount', async () => {
     const pending = deferred()
     vi.mocked(listModels).mockReturnValue(pending.promise)
-    const { unmount } = render(<ModelSettings apiKey={KEY} />)
-    await vi.waitFor(() => expect(listModels).toHaveBeenCalledTimes(1))
+    const { unmount } = render(<Harness />)
+    await act(async () => {})
+    expect(listModels).toHaveBeenCalledTimes(1)
     unmount()
     await act(async () => pending.resolve([FLASH]))
     // No auto-select save from the stale response.
@@ -249,8 +266,9 @@ describe('ModelSettings', () => {
   it('drops a pending query error after unmount', async () => {
     const pending = deferred()
     vi.mocked(listModels).mockReturnValue(pending.promise)
-    const { unmount } = render(<ModelSettings apiKey={KEY} />)
-    await vi.waitFor(() => expect(listModels).toHaveBeenCalledTimes(1))
+    const { unmount } = render(<Harness />)
+    await act(async () => {})
+    expect(listModels).toHaveBeenCalledTimes(1)
     unmount()
     await act(async () => pending.reject(codedError('network')))
     expect(updateSettings).not.toHaveBeenCalled()
@@ -259,9 +277,9 @@ describe('ModelSettings', () => {
   it('does not update after unmount while settings are loading', async () => {
     const load = deferred()
     vi.mocked(loadSettings).mockReturnValue(load.promise)
-    const { unmount } = render(<ModelSettings apiKey={KEY} />)
+    const { unmount } = render(<Harness />)
     unmount()
     await act(async () => load.resolve({ geminiModel: '' }))
-    expect(listModels).not.toHaveBeenCalled()
+    expect(updateSettings).not.toHaveBeenCalled()
   })
 })

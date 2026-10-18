@@ -131,7 +131,8 @@ html {
   cursor: pointer;
 }
 
-.button:disabled {
+.button:disabled,
+.button[aria-disabled='true'] {
   opacity: 0.6;
   cursor: default;
 }
@@ -443,4 +444,17 @@ html {
   /* Keep the sample's line breaks. */
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* Settings: API key check result with its optional 重新確認 button. */
+.key-check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 8px;
+}
+
+.key-check p {
+  margin: 0;
 }

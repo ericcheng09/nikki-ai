@@ -17,10 +17,11 @@ import {
 const FAKE_KEY = 'test-key-123'
 const OTHER_KEY = 'test-key-456'
 
+// Shown in the API key section when the shared models request fails.
 const ERRORS = {
   invalidKey: 'API key 無效，請確認後重新儲存。',
-  network: '無法連線到 Gemini，請檢查網路後再試一次。',
-  other: '無法取得模型清單，請稍後再試。',
+  network: '無法確認 API key，請檢查網路後再試一次。',
+  other: '無法確認 API key，請稍後再試。',
 }
 const MISSING_MODEL = '目前選擇的模型已無法使用，請重新選擇。'
 
@@ -29,7 +30,9 @@ const modelSection = (page) => page.getByRole('region', { name: 'Gemini 模型' 
 const modelSelect = (page) => modelSection(page).getByLabel('模型', { exact: true })
 const modelNotice = (page) => modelSection(page).getByRole('status')
 const modelAlert = (page) => modelSection(page).getByRole('alert')
-const retryButton = (page) => modelSection(page).getByRole('button', { name: '重新查詢' })
+const keyCheck = (page) => keySection(page).locator('.key-check').getByRole('status')
+const keyNotice = (page) => keySection(page).locator('form').getByRole('status')
+const recheckButton = (page) => keySection(page).getByRole('button', { name: '重新確認' })
 
 const model = (name, displayName, methods = ['generateContent']) => ({
   name,
@@ -47,7 +50,7 @@ async function openSettings(page) {
 async function saveKey(page, key = FAKE_KEY) {
   await keySection(page).getByLabel('API key', { exact: true }).fill(key)
   await keySection(page).getByRole('button', { name: '儲存' }).click()
-  await expect(keySection(page).getByRole('status')).toHaveText('已儲存')
+  await expect(keyNotice(page)).toHaveText('已儲存')
 }
 
 async function storedModel(page) {
@@ -240,10 +243,12 @@ test.describe('settings: Gemini model', () => {
     expect((await storedModel(page)) ?? '').toBe('')
   })
 
+  // retry: whether 「重新確認」 is offered (not for an invalid key).
   const failures = [
     {
       title: '400 API_KEY_INVALID',
       message: ERRORS.invalidKey,
+      retry: false,
       respond: (route) =>
         fulfillJson(
           route,
@@ -258,20 +263,34 @@ test.describe('settings: Gemini model', () => {
           400,
         ),
     },
-    { title: '401', message: ERRORS.invalidKey, respond: (route) => fulfillJson(route, { error: {} }, 401) },
-    { title: '403', message: ERRORS.invalidKey, respond: (route) => fulfillJson(route, { error: {} }, 403) },
-    { title: 'network failure', message: ERRORS.network, respond: (route) => route.abort('internetdisconnected') },
-    { title: '500', message: ERRORS.other, respond: (route) => fulfillJson(route, { error: {} }, 500) },
-    { title: '429', message: ERRORS.other, respond: (route) => fulfillJson(route, { error: {} }, 429) },
+    { title: '401', message: ERRORS.invalidKey, retry: false, respond: (route) => fulfillJson(route, { error: {} }, 401) },
+    { title: '403', message: ERRORS.invalidKey, retry: false, respond: (route) => fulfillJson(route, { error: {} }, 403) },
+    { title: 'network failure', message: ERRORS.network, retry: true, respond: (route) => route.abort('internetdisconnected') },
+    { title: '500', message: ERRORS.other, retry: true, respond: (route) => fulfillJson(route, { error: {} }, 500) },
+    { title: '503', message: ERRORS.other, retry: true, respond: (route) => fulfillJson(route, { error: {} }, 503) },
+    { title: '429', message: ERRORS.other, retry: true, respond: (route) => fulfillJson(route, { error: {} }, 429) },
     {
       title: '400 without API_KEY_INVALID',
       message: ERRORS.other,
+      retry: true,
       respond: (route) => fulfillJson(route, { error: { code: 400, status: 'INVALID_ARGUMENT' } }, 400),
+    },
+    {
+      title: 'malformed 200 body',
+      message: ERRORS.other,
+      retry: true,
+      respond: (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'text/html',
+          headers: { 'access-control-allow-origin': '*' },
+          body: '<html>not json</html>',
+        }),
     },
   ]
 
   for (const failure of failures) {
-    test(`query failure (${failure.title}) keeps the saved model; 重新查詢 recovers`, async ({
+    test(`query failure (${failure.title}): key section error, model section hidden, model kept`, async ({
       page,
     }) => {
       await openSettings(page)
@@ -281,21 +300,34 @@ test.describe('settings: Gemini model', () => {
 
       gemini.respond = failure.respond
       await page.reload()
-      await expect(modelAlert(page)).toHaveText(failure.message)
-      await expect(retryButton(page)).toBeVisible()
-      await expect(modelSelect(page)).toHaveCount(0)
+      await expect(keyCheck(page)).toHaveText(failure.message)
+      await expect(recheckButton(page)).toHaveCount(failure.retry ? 1 : 0)
+      // The model section is gone entirely: no error text, no 重新查詢.
+      await expect(modelSection(page)).toHaveCount(0)
+      await expect(page.getByRole('button', { name: '重新查詢' })).toHaveCount(0)
+      await expect(page.getByText('正在取得模型清單…')).toHaveCount(0)
+      await expect(page.getByText(failure.message)).toHaveCount(1)
+      await expect(page.getByText('目前已設定 API key')).toHaveCount(0)
+      // Neither the model nor the key is changed by a failure.
+      await page.waitForLoadState('networkidle')
       expect(await storedModel(page)).toBe('models/gemini-2.5-pro')
-      // The key itself is untouched by a failed query.
-      await expect(keySection(page).getByText('目前已設定 API key', { exact: true })).toBeVisible()
       expect((await readStore(page, 'settings')).geminiApiKey).toBe(FAKE_KEY)
+      expect(gemini.modelRequests).toHaveLength(2)
 
-      const before = gemini.modelRequests.length
       gemini.respond = listOf(MOCK_MODELS)
-      await retryButton(page).click()
+      if (failure.retry) {
+        // 重新確認: exactly one more request; success shows the list.
+        await recheckButton(page).click()
+        await expect(keyCheck(page)).toHaveText('API key 可以使用')
+        await expect(recheckButton(page)).toHaveCount(0)
+      } else {
+        // No retry for an invalid key: saving a key again checks it.
+        await saveKey(page)
+        await expect(keyCheck(page)).toHaveText('API key 可以使用')
+      }
       await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-pro')
-      await expect(modelAlert(page)).toHaveCount(0)
-      await expect(retryButton(page)).toHaveCount(0)
-      expect(gemini.modelRequests.length).toBe(before + 1)
+      await page.waitForLoadState('networkidle')
+      expect(gemini.modelRequests).toHaveLength(3)
       expect(await storedModel(page)).toBe('models/gemini-2.5-pro')
     })
   }
@@ -325,7 +357,7 @@ test.describe('settings: Gemini model', () => {
     await expect(modelSelect(page)).toHaveValue('models/gemini-2.5-flash')
 
     await keySection(page).getByRole('button', { name: '刪除' }).click()
-    await expect(keySection(page).getByRole('status')).toHaveText('已刪除')
+    await expect(keyNotice(page)).toHaveText('已刪除')
     await expect(modelSection(page)).toHaveCount(0)
     expect(await storedModel(page)).toBe('models/gemini-2.5-flash')
 

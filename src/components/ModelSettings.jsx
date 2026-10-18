@@ -1,13 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { listModels } from '../lib/gemini.js'
 import { modelChoices, shownModels } from '../lib/models.js'
 import { loadSettings, updateSettings } from '../storage/connection.js'
 
-const QUERY_ERRORS = {
-  invalidKey: 'API key 無效，請確認後重新儲存。',
-  network: '無法連線到 Gemini，請檢查網路後再試一次。',
-  other: '無法取得模型清單，請稍後再試。',
-}
 const SAVE_ERROR = '無法儲存設定，請重新整理頁面後再試一次。'
 
 // First model whose name mentions "flash" (fast and cheap enough for
@@ -17,15 +11,19 @@ function findFlashModel(models) {
 }
 
 // Gemini model section of the settings page (spec 3.6, decisions.md
-// Phase 2 「Gemini 模型」). Rendered only while an API key is saved; the
-// parent remounts it (via `key`) whenever the key is saved again, so every
-// mount queries the model list once.
-export default function ModelSettings({ apiKey }) {
-  // status: 'loading' | 'ready' | 'queryError' | 'loadError'
-  const [status, setStatus] = useState('loading')
-  // Full list from listModels; what is offered comes from models.js.
-  const [models, setModels] = useState([])
-  const [errorCode, setErrorCode] = useState('other')
+// Phase 2 「Gemini 模型」). It does not query Gemini itself: `query` is the
+// page's shared models.list request (see useModelQuery), and the parent
+// renders this section only while that request is loading or succeeded,
+// remounting it for every new request. Errors and retrying belong to the
+// API key section, so a failed request never reaches this component and
+// never changes the saved model.
+export default function ModelSettings({ query }) {
+  // settings: 'loading' | 'ready' | 'error' (reading the saved model)
+  const [settingsStatus, setSettingsStatus] = useState('loading')
+  // The successful list once the saved model is known and the automatic
+  // choice (if any) is done; null until then, so the select never shows
+  // 請選擇模型 just before the automatic choice lands.
+  const [models, setModels] = useState(null)
   const [savedModel, setSavedModel] = useState('')
   const [saveError, setSaveError] = useState('')
   const [notice, setNotice] = useState('')
@@ -33,9 +31,6 @@ export default function ModelSettings({ apiKey }) {
   // Mirrors savedModel so async callbacks never read a stale closure.
   const savedModelRef = useRef('')
   const busyRef = useRef(false)
-  // Each query gets an id; only the latest one may update state. Bumped on
-  // unmount too, so late responses are dropped (also covers StrictMode).
-  const requestRef = useRef(0)
   const selectId = useId()
 
   const rememberModel = useCallback((name) => {
@@ -43,62 +38,52 @@ export default function ModelSettings({ apiKey }) {
     setSavedModel(name)
   }, [])
 
-  const query = useCallback(async () => {
-    const id = ++requestRef.current
-    setStatus('loading')
-    setNotice('')
-    setSaveError('')
-    let list
-    try {
-      list = await listModels(apiKey)
-    } catch (error) {
-      if (id !== requestRef.current) return
-      // The saved model is kept, so diary feedback keeps working.
-      // Own-property check: `in` would also accept inherited names such
-      // as toString from Object.prototype.
-      setErrorCode(Object.hasOwn(QUERY_ERRORS, error?.code) ? error.code : 'other')
-      setStatus('queryError')
-      return
-    }
-    if (id !== requestRef.current) return
-
-    // Nothing chosen yet: pick the first Flash model and save it before
-    // showing the list, so the select never flashes 請選擇模型 first.
-    // Picked from the shown list only, never from filtered-out models.
-    if (!savedModelRef.current) {
-      const flash = findFlashModel(shownModels(list))
-      if (flash) {
-        try {
-          await updateSettings({ geminiModel: flash.name })
-          if (id !== requestRef.current) return
-          rememberModel(flash.name)
-        } catch {
-          if (id !== requestRef.current) return
-          // Still show the list so the user can pick (and retry saving).
-          setSaveError(SAVE_ERROR)
-        }
-      }
-    }
-    setModels(list)
-    setStatus('ready')
-  }, [apiKey, rememberModel])
-
   useEffect(() => {
-    const id = requestRef.current
+    let active = true
     loadSettings()
       .then((settings) => {
-        // Unmounted (or remounted) meanwhile: requestRef has moved on.
-        if (id !== requestRef.current) return
+        if (!active) return
         rememberModel(settings.geminiModel ?? '')
-        query()
+        setSettingsStatus('ready')
       })
       .catch(() => {
-        if (id === requestRef.current) setStatus('loadError')
+        if (active) setSettingsStatus('error')
       })
     return () => {
-      requestRef.current += 1
+      active = false
     }
-  }, [query, rememberModel])
+  }, [rememberModel])
+
+  const list = query.status === 'success' ? query.models : null
+
+  // Once both the list and the saved model are known: nothing chosen yet
+  // means pick the first Flash model of the shown list (never a
+  // filtered-out one) and save it before showing the select.
+  useEffect(() => {
+    if (!list || settingsStatus !== 'ready') return undefined
+    let active = true
+    async function prepare() {
+      if (!savedModelRef.current) {
+        const flash = findFlashModel(shownModels(list))
+        if (flash) {
+          try {
+            await updateSettings({ geminiModel: flash.name })
+            if (!active) return
+            rememberModel(flash.name)
+          } catch {
+            if (!active) return
+            // Still show the list so the user can pick (and retry saving).
+            setSaveError(SAVE_ERROR)
+          }
+        }
+      }
+      if (active) setModels(list)
+    }
+    prepare()
+    return () => {
+      active = false
+    }
+  }, [list, settingsStatus, rememberModel])
 
   async function handleChange(event) {
     const name = event.target.value
@@ -123,35 +108,23 @@ export default function ModelSettings({ apiKey }) {
   // an extra option (see modelChoices). One missing from the full list
   // stays stored (decisions.md) but is not shown as selected, so the user
   // is prompted to pick another one.
-  const { options, savedUsable } = modelChoices(models, savedModel)
+  const { options, savedUsable } = modelChoices(models ?? [], savedModel)
   const selectValue = savedUsable ? savedModel : ''
+  const ready = settingsStatus === 'ready' && models !== null
 
   return (
     <section className="settings-section" aria-labelledby="settings-model">
       <h3 id="settings-model">Gemini 模型</h3>
 
-      {status === 'loading' && <p className="muted">正在取得模型清單…</p>}
-
-      {status === 'loadError' && (
+      {settingsStatus === 'error' && (
         <p className="error" role="alert">
           無法讀取設定，請重新整理頁面。
         </p>
       )}
 
-      {status === 'queryError' && (
-        <div className="settings-form">
-          <p className="error" role="alert">
-            {QUERY_ERRORS[errorCode]}
-          </p>
-          <div className="actions">
-            <button type="button" className="button button-secondary" onClick={query}>
-              重新查詢
-            </button>
-          </div>
-        </div>
-      )}
+      {settingsStatus !== 'error' && !ready && <p className="muted">正在取得模型清單…</p>}
 
-      {status === 'ready' && (
+      {ready && (
         <div className="settings-form">
           <div className="field">
             <label htmlFor={selectId}>模型</label>

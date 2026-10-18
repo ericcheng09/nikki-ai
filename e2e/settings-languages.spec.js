@@ -111,7 +111,7 @@ test.describe('settings: 語言清單', () => {
     await expect(listSection(page).getByText(EMPTY_TEXT, { exact: true })).toBeVisible()
 
     await keySection(page).getByRole('button', { name: '刪除', exact: true }).click()
-    await expect(keySection(page).getByRole('status')).toHaveText('已刪除')
+    await expect(keySection(page).locator('form').getByRole('status')).toHaveText('已刪除')
     expect(await sectionHeadings(page)).toEqual(['Gemini API key', '語言清單'])
     await expect(listSection(page)).toBeVisible()
   })

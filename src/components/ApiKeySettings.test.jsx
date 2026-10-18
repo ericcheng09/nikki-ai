@@ -59,7 +59,8 @@ describe('ApiKeySettings', () => {
     expect(input).toHaveAttribute('type', 'password')
     expect(input).toHaveAttribute('autocomplete', 'off')
     expect(input).toHaveAttribute('spellcheck', 'false')
-    expect(screen.getByText('目前已設定 API key')).toBeInTheDocument()
+    // No check result yet: the key is being confirmed.
+    expect(screen.getByText('正在確認 API key…')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '刪除' })).toBeInTheDocument()
   })
 
@@ -78,8 +79,9 @@ describe('ApiKeySettings', () => {
     expect(await screen.findByText('已儲存')).toBeInTheDocument()
     expect(updateSettings).toHaveBeenCalledWith({ geminiApiKey: KEY })
     expect(input).toHaveValue(KEY)
-    expect(screen.getByText('目前已設定 API key')).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('已儲存')
+    // No check result yet: the key is being confirmed.
+    expect(screen.getByText('正在確認 API key…')).toBeInTheDocument()
+    expect(screen.getByText('已儲存')).toHaveAttribute('role', 'status')
   })
 
   it('replaces an existing key', async () => {
@@ -106,7 +108,8 @@ describe('ApiKeySettings', () => {
     fireEvent.click(screen.getByRole('button', { name: '儲存' }))
     expect(screen.getByRole('alert')).toHaveTextContent('請輸入 API key')
     expect(updateSettings).not.toHaveBeenCalled()
-    expect(screen.getByText('目前已設定 API key')).toBeInTheDocument()
+    // No check result yet: the key is being confirmed.
+    expect(screen.getByText('正在確認 API key…')).toBeInTheDocument()
   })
 
   it('clears the error once the user types again', async () => {
@@ -140,7 +143,7 @@ describe('ApiKeySettings', () => {
     expect(alert).toHaveTextContent('無法儲存設定，請重新整理頁面後再試一次。')
     expect(alert).not.toHaveTextContent(KEY)
     expect(screen.getByText('尚未設定 API key')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '儲存' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '儲存' })).toHaveAttribute('aria-disabled', 'false')
   })
 
   it('keeps the key when deleting fails', async () => {
@@ -150,7 +153,8 @@ describe('ApiKeySettings', () => {
     fireEvent.click(screen.getByRole('button', { name: '刪除' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('無法儲存設定')
     expect(input).toHaveValue(KEY)
-    expect(screen.getByText('目前已設定 API key')).toBeInTheDocument()
+    // No check result yet: the key is being confirmed.
+    expect(screen.getByText('正在確認 API key…')).toBeInTheDocument()
   })
 
   it('ignores a second click while saving', async () => {
@@ -163,12 +167,65 @@ describe('ApiKeySettings', () => {
     const input = await renderLoaded()
     fireEvent.change(input, { target: { value: KEY } })
     const save = screen.getByRole('button', { name: '儲存' })
+    save.focus()
     fireEvent.click(save)
     fireEvent.click(save)
+    // Enter in the field submits the form too; also ignored meanwhile.
+    fireEvent.submit(input.closest('form'))
     expect(updateSettings).toHaveBeenCalledTimes(1)
-    expect(save).toBeDisabled()
+    // Inert but still focusable, so keyboard focus stays on 儲存.
+    expect(save).toHaveAttribute('aria-disabled', 'true')
+    expect(save).not.toBeDisabled()
+    expect(save).toHaveFocus()
     finish()
     expect(await screen.findByText('已儲存')).toBeInTheDocument()
+    expect(save).toHaveAttribute('aria-disabled', 'false')
+    expect(save).toHaveFocus()
+  })
+
+  it('ignores 刪除 while a save runs, and 儲存 while deleting', async () => {
+    let finish
+    vi.mocked(updateSettings).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+    )
+    withKey(KEY)
+    await renderLoaded()
+    const save = screen.getByRole('button', { name: '儲存' })
+    const remove = screen.getByRole('button', { name: '刪除' })
+    fireEvent.click(remove)
+    expect(remove).toHaveAttribute('aria-disabled', 'true')
+    expect(save).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(save)
+    fireEvent.click(remove)
+    expect(updateSettings).toHaveBeenCalledTimes(1)
+    expect(updateSettings).toHaveBeenCalledWith({ geminiApiKey: '' })
+    finish()
+    expect(await screen.findByText('已刪除')).toBeInTheDocument()
+  })
+
+  it('moves focus to the key input after 刪除, whose button goes away', async () => {
+    withKey(KEY)
+    const input = await renderLoaded()
+    const remove = screen.getByRole('button', { name: '刪除' })
+    remove.focus()
+    fireEvent.click(remove)
+    expect(await screen.findByText('已刪除')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '刪除' })).not.toBeInTheDocument()
+    expect(input).toHaveFocus()
+  })
+
+  it('keeps focus on 刪除 when deleting fails', async () => {
+    vi.mocked(updateSettings).mockRejectedValue(new Error('boom'))
+    withKey(KEY)
+    await renderLoaded()
+    const remove = screen.getByRole('button', { name: '刪除' })
+    remove.focus()
+    fireEvent.click(remove)
+    expect(await screen.findByRole('alert')).toHaveTextContent('無法儲存設定')
+    expect(remove).toHaveFocus()
+    expect(remove).toHaveAttribute('aria-disabled', 'false')
   })
 
   it('shows a load error and no form when settings cannot be read', async () => {
@@ -238,5 +295,112 @@ describe('ApiKeySettings', () => {
     fireEvent.click(screen.getByRole('button', { name: '儲存' }))
     await screen.findByText(/無法儲存設定/)
     expect(onKeyChange).not.toHaveBeenCalled()
+  })
+
+  describe('key check line', () => {
+    const check = (status, errorCode = '') => ({ status, models: [], errorCode, requestId: 1 })
+    const checkLine = () => screen.getByText(/API key (可以使用|無效)|確認 API key/)
+
+    async function renderWithCheck(keyCheck, onRetry = vi.fn()) {
+      withKey(KEY)
+      const view = render(<ApiKeySettings keyCheck={keyCheck} onRetry={onRetry} />)
+      await screen.findByLabelText('API key')
+      return { ...view, onRetry }
+    }
+
+    it.each([
+      ['loading', '', '正在確認 API key…', false],
+      ['success', '', 'API key 可以使用', false],
+      ['error', 'invalidKey', 'API key 無效，請確認後重新儲存。', false],
+      ['error', 'network', '無法確認 API key，請檢查網路後再試一次。', true],
+      ['error', 'quota', '無法確認 API key，請稍後再試。', true],
+      ['error', 'other', '無法確認 API key，請稍後再試。', true],
+      ['error', 'toString', '無法確認 API key，請稍後再試。', true],
+    ])('shows %s %s as a status line', async (status, code, text, retry) => {
+      await renderWithCheck(check(status, code))
+      expect(checkLine()).toHaveTextContent(text)
+      expect(checkLine()).toHaveAttribute('role', 'status')
+      expect(checkLine()).not.toHaveTextContent(KEY)
+      expect(screen.queryByText('目前已設定 API key')).not.toBeInTheDocument()
+      if (retry) {
+        expect(screen.getByRole('button', { name: '重新確認' })).toBeInTheDocument()
+      } else {
+        expect(screen.queryByRole('button', { name: '重新確認' })).not.toBeInTheDocument()
+      }
+    })
+
+    it('calls onRetry once per 重新確認 click', async () => {
+      const { onRetry } = await renderWithCheck(check('error', 'network'))
+      fireEvent.click(screen.getByRole('button', { name: '重新確認' }))
+      expect(onRetry).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows no check line without a saved key, whatever the check state', async () => {
+      withKey('')
+      render(<ApiKeySettings keyCheck={check('error', 'network')} onRetry={vi.fn()} />)
+      await screen.findByLabelText('API key')
+      expect(screen.getByText('尚未設定 API key')).toBeInTheDocument()
+      expect(screen.queryByText(/確認 API key/)).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: '重新確認' })).not.toBeInTheDocument()
+    })
+
+    describe('focus around 重新確認', () => {
+      async function startRetry(onRetry = vi.fn()) {
+        const { rerender } = await renderWithCheck(check('error', 'network'), onRetry)
+        const button = screen.getByRole('button', { name: '重新確認' })
+        button.focus()
+        fireEvent.click(button)
+        // The page answers by starting the check again.
+        rerender(<ApiKeySettings keyCheck={check('loading')} onRetry={onRetry} />)
+        return { rerender, onRetry }
+      }
+
+      it('keeps the button, inert and focused, while the retry runs', async () => {
+        const { onRetry } = await startRetry()
+        const button = screen.getByRole('button', { name: '重新確認' })
+        expect(screen.getByText('正在確認 API key…')).toBeInTheDocument()
+        expect(button).toHaveAttribute('aria-disabled', 'true')
+        expect(button).toHaveFocus()
+        fireEvent.click(button)
+        expect(onRetry).toHaveBeenCalledTimes(1)
+      })
+
+      it('re-enables the button with focus kept when the retry fails again', async () => {
+        const { rerender, onRetry } = await startRetry()
+        rerender(<ApiKeySettings keyCheck={check('error', 'network')} onRetry={onRetry} />)
+        const button = screen.getByRole('button', { name: '重新確認' })
+        expect(button).toHaveAttribute('aria-disabled', 'false')
+        expect(button).toHaveFocus()
+        fireEvent.click(button)
+        expect(onRetry).toHaveBeenCalledTimes(2)
+      })
+
+      it.each([
+        ['success', '', 'API key 可以使用'],
+        ['error', 'invalidKey', 'API key 無效，請確認後重新儲存。'],
+      ])('moves focus to the status line when the retry ends in %s %s', async (status, code, text) => {
+        const { rerender, onRetry } = await startRetry()
+        rerender(<ApiKeySettings keyCheck={check(status, code)} onRetry={onRetry} />)
+        expect(screen.queryByRole('button', { name: '重新確認' })).not.toBeInTheDocument()
+        expect(screen.getByText(text)).toHaveFocus()
+      })
+
+      it('does not move focus for a check it did not start', async () => {
+        const { rerender } = await renderWithCheck(check('loading'))
+        const input = screen.getByLabelText('API key')
+        input.focus()
+        rerender(<ApiKeySettings keyCheck={check('success')} onRetry={vi.fn()} />)
+        expect(input).toHaveFocus()
+      })
+
+      it('shows no button during a check started by a save', async () => {
+        const { rerender, onRetry } = await startRetry()
+        // A save while the retry runs starts its own check.
+        fireEvent.click(screen.getByRole('button', { name: '儲存' }))
+        await screen.findByText('已儲存')
+        rerender(<ApiKeySettings keyCheck={check('loading', '')} onRetry={onRetry} />)
+        expect(screen.queryByRole('button', { name: '重新確認' })).not.toBeInTheDocument()
+      })
+    })
   })
 })

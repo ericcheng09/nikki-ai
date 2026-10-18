@@ -167,4 +167,135 @@ describe('SettingsPage', () => {
     await screen.findByText('已刪除')
     expect(screen.getByRole('heading', { name: '語言清單' })).toBeInTheDocument()
   })
+
+  describe('API key check (shared with the model list)', () => {
+    const coded = (code) => Object.assign(new Error(`failed: ${code}`), { code })
+    const withSavedKey = (geminiModel = FLASH.name) =>
+      vi.mocked(loadSettings).mockResolvedValue({ geminiApiKey: 'test-key-123', geminiModel })
+
+    it('sends exactly one request on page open and shows that the key works', async () => {
+      withSavedKey()
+      renderSettings()
+      expect(await screen.findByText('API key 可以使用')).toBeInTheDocument()
+      expect(await screen.findByLabelText('模型')).toHaveValue(FLASH.name)
+      expect(listModels).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows 正在確認 API key… and the model loading text while the request runs', async () => {
+      withSavedKey()
+      vi.mocked(listModels).mockReturnValue(new Promise(() => {}))
+      renderSettings()
+      expect(await screen.findByText('正在確認 API key…')).toBeInTheDocument()
+      expect(screen.getByText('正在取得模型清單…')).toBeInTheDocument()
+    })
+
+    it('sends exactly one request per key save', async () => {
+      renderSettings()
+      const input = await keyInput()
+      saveKey(input, 'test-key-123')
+      expect(await screen.findByText('API key 可以使用')).toBeInTheDocument()
+      expect(listModels).toHaveBeenCalledTimes(1)
+      // Saving the same key again checks it again, once.
+      saveKey(input, 'test-key-123')
+      await vi.waitFor(() => expect(listModels).toHaveBeenCalledTimes(2))
+      expect(await screen.findByText('API key 可以使用')).toBeInTheDocument()
+      expect(listModels).toHaveBeenCalledTimes(2)
+    })
+
+    it('saves an invalid key anyway and reports it only in the key section', async () => {
+      vi.mocked(listModels).mockRejectedValue(coded('invalidKey'))
+      renderSettings()
+      const input = await keyInput()
+      saveKey(input, 'bad-key')
+      expect(await screen.findByText('API key 無效，請確認後重新儲存。')).toBeInTheDocument()
+      expect(updateSettings).toHaveBeenCalledWith({ geminiApiKey: 'bad-key' })
+      // The model section is gone instead of repeating the error.
+      expect(screen.queryByRole('heading', { name: 'Gemini 模型' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: '重新查詢' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: '重新確認' })).not.toBeInTheDocument()
+    })
+
+    it.each([
+      ['network', '無法確認 API key，請檢查網路後再試一次。'],
+      ['quota', '無法確認 API key，請稍後再試。'],
+      ['other', '無法確認 API key，請稍後再試。'],
+    ])('on a %s failure offers 重新確認, which sends exactly one new request', async (code, text) => {
+      withSavedKey()
+      vi.mocked(listModels).mockRejectedValueOnce(coded(code)).mockResolvedValueOnce([PRO, FLASH])
+      renderSettings()
+      expect(await screen.findByText(text)).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Gemini 模型' })).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: '重新確認' }))
+      expect(await screen.findByText('API key 可以使用')).toBeInTheDocument()
+      expect(await screen.findByLabelText('模型')).toHaveValue(FLASH.name)
+      expect(listModels).toHaveBeenCalledTimes(2)
+      expect(listModels).toHaveBeenLastCalledWith('test-key-123')
+      // The saved model was never touched by the failure.
+      expect(updateSettings).not.toHaveBeenCalled()
+    })
+
+    it('keeps keyboard focus through 重新確認: on the button while checking and after a new failure, then on the result', async () => {
+      withSavedKey()
+      let finish
+      vi.mocked(listModels)
+        .mockRejectedValueOnce(coded('network'))
+        .mockReturnValueOnce(
+          new Promise((resolve, reject) => {
+            finish = reject
+          }),
+        )
+        .mockResolvedValueOnce([FLASH])
+      renderSettings()
+      const button = await screen.findByRole('button', { name: '重新確認' })
+      button.focus()
+      fireEvent.click(button)
+      expect(await screen.findByText('正在確認 API key…')).toBeInTheDocument()
+      expect(button).toHaveFocus()
+      expect(button).toHaveAttribute('aria-disabled', 'true')
+      await act(async () => finish(coded('network')))
+      expect(await screen.findByText('無法確認 API key，請檢查網路後再試一次。')).toBeInTheDocument()
+      expect(button).toHaveFocus()
+      fireEvent.click(button)
+      expect(await screen.findByText('API key 可以使用')).toHaveFocus()
+      expect(listModels).toHaveBeenCalledTimes(3)
+    })
+
+    it('ignores a late failure for a replaced key', async () => {
+      let rejectOld
+      vi.mocked(listModels)
+        .mockReturnValueOnce(
+          new Promise((resolve, reject) => {
+            rejectOld = reject
+          }),
+        )
+        .mockResolvedValueOnce([FLASH])
+      withSavedKey()
+      renderSettings()
+      const input = await keyInput()
+      await vi.waitFor(() => expect(listModels).toHaveBeenCalledTimes(1))
+      saveKey(input, 'test-key-456')
+      expect(await screen.findByText('API key 可以使用')).toBeInTheDocument()
+      await act(async () => rejectOld(coded('invalidKey')))
+      expect(screen.getByText('API key 可以使用')).toBeInTheDocument()
+      expect(screen.queryByText(/API key 無效/)).not.toBeInTheDocument()
+      expect(screen.getByLabelText('模型')).toBeInTheDocument()
+    })
+
+    it('drops the check when the key is deleted mid-request', async () => {
+      let resolveOld
+      vi.mocked(listModels).mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveOld = resolve
+        }),
+      )
+      withSavedKey()
+      renderSettings()
+      await screen.findByText('正在確認 API key…')
+      fireEvent.click(screen.getByRole('button', { name: '刪除' }))
+      expect(await screen.findByText('尚未設定 API key')).toBeInTheDocument()
+      await act(async () => resolveOld([FLASH]))
+      expect(screen.queryByText('API key 可以使用')).not.toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Gemini 模型' })).not.toBeInTheDocument()
+    })
+  })
 })
