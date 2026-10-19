@@ -9,7 +9,8 @@ import { test, expect, installGeminiMock, readStore } from './helpers.js'
 
 const FAKE_KEY = 'test-key-123'
 const AI_STUDIO_URL = 'https://aistudio.google.com/apikey'
-const STORAGE_NOTE = 'API key 只會存在這個瀏覽器，只用來呼叫 Gemini，不會傳送到其他地方。'
+const STORAGE_NOTE =
+  'API key 存在這個瀏覽器；登入 Google 後，也會同步到你 Google Drive 中只有這個 App 看得到的資料夾。只用來呼叫 Gemini，不會傳送到其他地方。'
 
 const keySection = (page) => page.getByRole('region', { name: 'Gemini API key' })
 const keyInput = (page) => keySection(page).getByLabel('API key', { exact: true })

@@ -4,6 +4,7 @@ import Calendar from './Calendar.jsx'
 import DiaryList from './DiaryList.jsx'
 import { currentMonth, entryDates, monthOfDate } from '../lib/calendar.js'
 import { homeSearchParams, resolveHomeQuery } from '../lib/homeQuery.js'
+import useSyncReplacedData from '../lib/useSyncReplacedData.js'
 import {
   isWelcomeSeenThisSession,
   loadEntries,
@@ -71,6 +72,17 @@ function HomeContent() {
       active = false
     }
   }, [])
+
+  // A sync brought data from another device: show it. A failed reload
+  // keeps what is on screen (the next one may succeed).
+  useSyncReplacedData(() => {
+    loadEntries()
+      .then((all) => {
+        setEntries(all)
+        setStatus('ready')
+      })
+      .catch(() => {})
+  })
 
   // Only once the entries are loaded can a date be checked for entries;
   // after a load error it cannot be checked, so it is left alone.

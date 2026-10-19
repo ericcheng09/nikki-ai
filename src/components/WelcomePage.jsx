@@ -18,7 +18,7 @@ export default function WelcomePage() {
         <h3 id="welcome-features">這個 App 可以做什麼</h3>
         <ul className="welcome-features">
           <li>
-            寫日記：選擇日期，用任何外語寫下日記，一天可以寫好幾篇。日記存在你的瀏覽器裡，只有在你按「AI 批改」時，那篇日記的內容才會送到 Google Gemini。
+            寫日記：選擇日期，用任何外語寫下日記，一天可以寫好幾篇。日記存在你的瀏覽器裡；登入 Google 後也會同步到你的 Google Drive。只有在你按「AI 批改」時，那篇日記的內容才會送到 Google Gemini。
           </li>
           <li>
             日曆：主畫面的日曆會標出有寫日記的日子，點一下就只看那天的日記；可以切換月份，回顧以前的紀錄。
@@ -30,7 +30,10 @@ export default function WelcomePage() {
             AI 批改：在日記頁按「AI 批改」，AI 會找出文法錯誤和不通順的句子，推薦更道地的說法，並附上修改後的全文和中文翻譯。批改結果只顯示在日記旁邊，不會改動你的日記。
           </li>
           <li>
-            使用前準備：AI 批改需要你自己的 Gemini API key，可以免費申請。從畫面右上角的齒輪「設定」貼上 key，App 通常會自動幫你選好模型。key 只會存在這個瀏覽器，只用來呼叫 Gemini。
+            使用前準備：AI 批改需要你自己的 Gemini API key，可以免費申請。從畫面右上角的齒輪「設定」貼上 key，App 通常會自動幫你選好模型。key 存在這個瀏覽器（登入 Google 後也會同步到你的 Google Drive），只用來呼叫 Gemini。
+          </li>
+          <li>
+            跨裝置同步：在設定頁登入 Google，日記、語言清單、API key 與模型會同步到你 Google Drive 中只有這個 App 看得到的資料夾，手機和電腦都能用。不登入也能使用全部功能。
           </li>
         </ul>
       </section>

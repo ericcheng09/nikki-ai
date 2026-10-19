@@ -14,6 +14,14 @@ import {
   addCustomLanguage,
   putEntryAnalysis,
   putEntryEdit,
+  readSyncSnapshot,
+  applySyncResult,
+  LEGACY_SETTING_UPDATED_AT,
+  getGoogleAuth,
+  saveGoogleAuth,
+  invalidateGoogleToken,
+  getSyncMeta,
+  saveSyncMeta,
 } from './db.js'
 
 const entry = (overrides = {}) => ({
@@ -611,5 +619,413 @@ describe('putEntryEdit', () => {
     const bad = entry()
     delete bad.id
     await expect(putEntryEdit(db, bad, changes, { now: NOW })).rejects.toThrow()
+  })
+})
+
+describe('sync storage', () => {
+  const DAY = 24 * 60 * 60 * 1000
+  const NOW = new Date('2026-10-19T00:00:00.000Z')
+  const T1 = '2026-10-01T00:00:00.000Z'
+  const T2 = '2026-10-02T00:00:00.000Z'
+  const T3 = '2026-10-03T00:00:00.000Z'
+  const lang = (name, updatedAt = T1) => ({ name, updatedAt, deleted: false, deletedAt: null })
+  const tomb = (id, at) => ({ id, updatedAt: at, deleted: true, deletedAt: at })
+
+  // Raw value of any key in the settings store, including sync metadata.
+  function rawSetting(key) {
+    return new Promise((resolve, reject) => {
+      const request = db.transaction(SETTINGS_STORE, 'readonly').objectStore(SETTINGS_STORE).get(key)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+  }
+
+  function rawPut(key, value) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(SETTINGS_STORE, 'readwrite')
+      tx.objectStore(SETTINGS_STORE).put(value, key)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  }
+
+  const merged = ({ entries = [], customLanguages = [], settings = {} } = {}) => ({
+    entries,
+    customLanguages,
+    settings,
+  })
+
+  describe('setting timestamps', () => {
+    it('keeps the schema version (settings are key/value, no migration)', () => {
+      expect(DB_VERSION).toBe(1)
+    })
+
+    it('stamps the API key on save and on delete', async () => {
+      await saveSettings(db, { geminiApiKey: 'k' }, { now: new Date(T1) })
+      expect(await rawSetting('geminiApiKeyUpdatedAt')).toBe(T1)
+      await saveSettings(db, { geminiApiKey: '' }, { now: new Date(T2) })
+      expect(await rawSetting('geminiApiKeyUpdatedAt')).toBe(T2)
+      expect(await rawSetting('geminiModelUpdatedAt')).toBeUndefined()
+    })
+
+    it('stamps the model on every write (user change or auto-select)', async () => {
+      await saveSettings(db, { geminiModel: 'models/a' }, { now: new Date(T1) })
+      await saveSettings(db, { geminiModel: 'models/b' }, { now: new Date(T3) })
+      expect(await rawSetting('geminiModelUpdatedAt')).toBe(T3)
+    })
+
+    it('does not stamp anything for other settings', async () => {
+      await saveSettings(db, { welcomeSeen: true, customLanguages: [] })
+      expect(await rawSetting('geminiApiKeyUpdatedAt')).toBeUndefined()
+      expect(await rawSetting('geminiModelUpdatedAt')).toBeUndefined()
+    })
+
+    it('ignores timestamps passed in directly and keeps them out of getSettings', async () => {
+      await saveSettings(db, { geminiApiKeyUpdatedAt: T3 })
+      expect(await rawSetting('geminiApiKeyUpdatedAt')).toBeUndefined()
+      await saveSettings(db, { geminiApiKey: 'k' })
+      expect(Object.keys(await getSettings(db)).sort()).toEqual(
+        ['customLanguages', 'geminiApiKey', 'geminiModel', 'welcomeSeen'],
+      )
+    })
+
+    it('uses the current time by default', async () => {
+      const before = Date.now()
+      await saveSettings(db, { geminiApiKey: 'k' })
+      expect(Date.parse(await rawSetting('geminiApiKeyUpdatedAt'))).toBeGreaterThanOrEqual(before)
+    })
+  })
+
+  describe('readSyncSnapshot', () => {
+    it('returns an empty snapshot and omits settings that were never set', async () => {
+      await saveSettings(db, { welcomeSeen: true })
+      expect(await readSyncSnapshot(db)).toEqual({ entries: [], customLanguages: [], settings: {} })
+    })
+
+    it('returns entries with tombstones, languages and timestamped settings', async () => {
+      await putEntry(db, entry())
+      await putEntry(db, tomb('id-2', T2))
+      await saveSettings(db, { customLanguages: [lang('韓文')] })
+      await saveSettings(db, { geminiApiKey: 'k' }, { now: new Date(T2) })
+      await saveSettings(db, { geminiModel: '' }, { now: new Date(T3) })
+      const snapshot = await readSyncSnapshot(db)
+      expect(snapshot.entries).toHaveLength(2)
+      expect(snapshot.entries).toContainEqual(tomb('id-2', T2))
+      expect(snapshot.customLanguages).toEqual([lang('韓文')])
+      expect(snapshot.settings).toEqual({
+        geminiApiKey: { value: 'k', updatedAt: T2 },
+        geminiModel: { value: '', updatedAt: T3 },
+      })
+      expect(snapshot.settings.welcomeSeen).toBeUndefined()
+    })
+
+    it('reports a legacy value without timestamp with the epoch', async () => {
+      await rawPut('geminiApiKey', 'old-key')
+      expect((await readSyncSnapshot(db)).settings).toEqual({
+        geminiApiKey: { value: 'old-key', updatedAt: LEGACY_SETTING_UPDATED_AT },
+      })
+      expect(LEGACY_SETTING_UPDATED_AT).toBe('1970-01-01T00:00:00.000Z')
+    })
+  })
+
+  describe('applySyncResult', () => {
+    const apply = (data) => applySyncResult(db, data, { now: NOW })
+
+    it('writes entries that are new or newer and reports a change', async () => {
+      await putEntry(db, entry({ updatedAt: T1 }))
+      const newer = entry({ updatedAt: T2, content: 'remote' })
+      const added = entry({ id: 'id-2' })
+      await expect(apply(merged({ entries: [newer, added] }))).resolves.toBe(true)
+      const stored = await getAllEntries(db)
+      expect(stored).toHaveLength(2)
+      expect(stored).toContainEqual(newer)
+      expect(stored).toContainEqual(added)
+    })
+
+    it('reports no change when everything is already stored', async () => {
+      await putEntry(db, entry())
+      await saveSettings(db, { customLanguages: [lang('韓文')] })
+      await saveSettings(db, { geminiApiKey: 'k' }, { now: new Date(T1) })
+      const snapshot = await readSyncSnapshot(db)
+      await expect(apply(snapshot)).resolves.toBe(false)
+      expect(await readSyncSnapshot(db)).toEqual(snapshot)
+    })
+
+    it('keeps a local edit made after the snapshot over older merged data', async () => {
+      await putEntry(db, entry({ updatedAt: T1 }))
+      const stale = await readSyncSnapshot(db)
+      // The user edits while the sync request is in flight.
+      const edited = entry({ updatedAt: T3, content: 'edited meanwhile' })
+      await putEntry(db, edited)
+      const remoteNewer = entry({ updatedAt: T2, content: 'remote' })
+      await expect(apply(merged({ ...stale, entries: [remoteNewer] }))).resolves.toBe(false)
+      expect(await getAllEntries(db)).toEqual([edited])
+    })
+
+    it('does not resurrect an entry deleted locally after the snapshot', async () => {
+      await putEntry(db, entry({ updatedAt: T1 }))
+      await putEntry(db, tomb('id-1', T3))
+      await apply(merged({ entries: [entry({ updatedAt: T2 })] }))
+      expect(await getAllEntries(db)).toEqual([tomb('id-1', T3)])
+    })
+
+    it('applies a remote deletion that is newer', async () => {
+      await putEntry(db, entry({ updatedAt: T1 }))
+      await apply(merged({ entries: [tomb('id-1', T2)] }))
+      expect(await getAllEntries(db)).toEqual([tomb('id-1', T2)])
+    })
+
+    it('uses the sync tie-break on equal updatedAt (deletion wins)', async () => {
+      await putEntry(db, entry({ updatedAt: T2 }))
+      await apply(merged({ entries: [tomb('id-1', T2)] }))
+      expect(await getAllEntries(db)).toEqual([tomb('id-1', T2)])
+    })
+
+    it('keeps the local record on a tie it wins', async () => {
+      await putEntry(db, tomb('id-1', T2))
+      await expect(apply(merged({ entries: [entry({ updatedAt: T2 })] }))).resolves.toBe(false)
+      expect(await getAllEntries(db)).toEqual([tomb('id-1', T2)])
+    })
+
+    it('hard-deletes local tombstones the sync purged', async () => {
+      const expired = new Date(NOW.getTime() - 91 * DAY).toISOString()
+      await putEntry(db, tomb('id-old', expired))
+      await putEntry(db, entry())
+      await expect(apply(merged({ entries: [entry()] }))).resolves.toBe(true)
+      expect(await getAllEntries(db)).toEqual([entry()])
+    })
+
+    it('keeps a tombstone that is not expired even if merged lacks it', async () => {
+      // e.g. a deletion made locally after the snapshot was read.
+      const recent = new Date(NOW.getTime() - DAY).toISOString()
+      await putEntry(db, tomb('id-new', recent))
+      await expect(apply(merged())).resolves.toBe(false)
+      expect(await getAllEntries(db)).toEqual([tomb('id-new', recent)])
+    })
+
+    it('never deletes live records missing from merged', async () => {
+      await putEntry(db, entry({ updatedAt: '2000-01-01T00:00:00.000Z' }))
+      await expect(apply(merged())).resolves.toBe(false)
+      expect(await getAllEntries(db)).toHaveLength(1)
+    })
+
+    it('leaves malformed local records untouched', async () => {
+      const broken = { id: 'bad', updatedAt: 'garbage', deleted: true, deletedAt: 'x' }
+      await putEntry(db, broken)
+      await apply(merged())
+      expect(await getAllEntries(db)).toEqual([broken])
+    })
+
+    it('merges languages per name against the current list', async () => {
+      await saveSettings(db, { customLanguages: [lang('韓文', T3), lang('法文', T1)] })
+      await expect(
+        apply(merged({ customLanguages: [{ ...lang('韓文', T2), deleted: true, deletedAt: T2 }, lang('泰文')] })),
+      ).resolves.toBe(true)
+      expect((await getSettings(db)).customLanguages).toEqual([
+        lang('韓文', T3),
+        lang('法文', T1),
+        lang('泰文'),
+      ])
+    })
+
+    it('applies a newer language deletion and purges an expired one', async () => {
+      const expired = new Date(NOW.getTime() - 91 * DAY).toISOString()
+      await saveSettings(db, {
+        customLanguages: [lang('韓文', T1), { ...lang('法文', expired), deleted: true, deletedAt: expired }],
+      })
+      await apply(merged({ customLanguages: [{ ...lang('韓文', T2), deleted: true, deletedAt: T2 }] }))
+      expect((await getSettings(db)).customLanguages).toEqual([
+        { ...lang('韓文', T2), deleted: true, deletedAt: T2 },
+      ])
+    })
+
+    it('writes a setting value and its timestamp only when newer', async () => {
+      await saveSettings(db, { geminiApiKey: 'local' }, { now: new Date(T2) })
+      await saveSettings(db, { geminiModel: 'models/local' }, { now: new Date(T1) })
+      await apply(merged({
+        settings: {
+          geminiApiKey: { value: 'older', updatedAt: T1 },
+          geminiModel: { value: 'models/remote', updatedAt: T3 },
+        },
+      }))
+      expect((await readSyncSnapshot(db)).settings).toEqual({
+        geminiApiKey: { value: 'local', updatedAt: T2 },
+        geminiModel: { value: 'models/remote', updatedAt: T3 },
+      })
+    })
+
+    it('applies a newer key deletion', async () => {
+      await saveSettings(db, { geminiApiKey: 'secret' }, { now: new Date(T1) })
+      await apply(merged({ settings: { geminiApiKey: { value: '', updatedAt: T2 } } }))
+      expect((await getSettings(db)).geminiApiKey).toBe('')
+      expect(await rawSetting('geminiApiKeyUpdatedAt')).toBe(T2)
+    })
+
+    it('lets any real timestamp beat a legacy value', async () => {
+      await rawPut('geminiApiKey', 'legacy')
+      await apply(merged({ settings: { geminiApiKey: { value: 'synced', updatedAt: T1 } } }))
+      expect((await getSettings(db)).geminiApiKey).toBe('synced')
+    })
+
+    it('does not write a legacy value back just to add a timestamp', async () => {
+      await rawPut('geminiApiKey', 'legacy')
+      const snapshot = await readSyncSnapshot(db)
+      await expect(apply(snapshot)).resolves.toBe(false)
+      expect(await rawSetting('geminiApiKeyUpdatedAt')).toBeUndefined()
+    })
+
+    it('keeps a language re-added after the snapshot even though sync purged it', async () => {
+      const expired = new Date(NOW.getTime() - 91 * DAY).toISOString()
+      await saveSettings(db, {
+        customLanguages: [{ ...lang('法文', expired), deleted: true, deletedAt: expired }],
+      })
+      const stale = await readSyncSnapshot(db)
+      // The user re-adds 法文 while the sync request is in flight.
+      await addCustomLanguage(db, '法文', { now: NOW })
+      const result = merged({ ...stale, customLanguages: [] }) // purged by sync
+      await apply(result)
+      expect((await getSettings(db)).customLanguages).toEqual([lang('法文', NOW.toISOString())])
+    })
+
+    it('keeps a key changed locally after the snapshot over an older merged key', async () => {
+      await saveSettings(db, { geminiApiKey: 'old' }, { now: new Date(T1) })
+      const stale = await readSyncSnapshot(db)
+      await saveSettings(db, { geminiApiKey: 'new local' }, { now: new Date(T3) })
+      await expect(
+        apply(merged({ ...stale, settings: { geminiApiKey: { value: 'remote', updatedAt: T2 } } })),
+      ).resolves.toBe(false)
+      expect((await readSyncSnapshot(db)).settings.geminiApiKey).toEqual({
+        value: 'new local',
+        updatedAt: T3,
+      })
+    })
+
+    it('lets a model chosen elsewhere beat a model auto-selected here', async () => {
+      // Automatic choices are stored with the legacy epoch (connection.js).
+      await saveSettings(db, { geminiModel: 'models/auto' }, { now: new Date(LEGACY_SETTING_UPDATED_AT) })
+      await apply(merged({ settings: { geminiModel: { value: 'models/user', updatedAt: T1 } } }))
+      expect((await getSettings(db)).geminiModel).toBe('models/user')
+    })
+
+    it('never writes welcomeSeen', async () => {
+      await saveSettings(db, { welcomeSeen: false })
+      await apply(merged({ settings: { welcomeSeen: { value: 'true', updatedAt: T3 } } }))
+      expect((await getSettings(db)).welcomeSeen).toBe(false)
+    })
+  })
+})
+
+describe('google auth record (local only)', () => {
+  const SIGNED_OUT = { enabled: false, accessToken: '', expiresAt: 0, needsLogin: false }
+  const signedIn = { enabled: true, accessToken: 'ya29.secret', expiresAt: 1_800_000_000_000, needsLogin: false }
+
+  it('defaults to signed out', async () => {
+    expect(await getGoogleAuth(db)).toEqual(SIGNED_OUT)
+  })
+
+  it('saves and reads back the token and flag', async () => {
+    await saveGoogleAuth(db, signedIn)
+    expect(await getGoogleAuth(db)).toEqual(signedIn)
+  })
+
+  it('resets omitted fields and ignores wrong types', async () => {
+    await saveGoogleAuth(db, signedIn)
+    await saveGoogleAuth(db, { enabled: true, needsLogin: true })
+    expect(await getGoogleAuth(db)).toEqual({ ...SIGNED_OUT, enabled: true, needsLogin: true })
+    await saveGoogleAuth(db, { enabled: 'yes', accessToken: 5, expiresAt: 'soon', needsLogin: null })
+    expect(await getGoogleAuth(db)).toEqual(SIGNED_OUT)
+  })
+
+  it('is never part of getSettings or the sync snapshot', async () => {
+    await saveGoogleAuth(db, signedIn)
+    await saveSettings(db, { geminiApiKey: 'k' })
+    expect(Object.keys(await getSettings(db)).sort()).toEqual(
+      ['customLanguages', 'geminiApiKey', 'geminiModel', 'welcomeSeen'],
+    )
+    const snapshot = await readSyncSnapshot(db)
+    expect(JSON.stringify(snapshot)).not.toContain('ya29.secret')
+    expect(Object.keys(snapshot.settings)).toEqual(['geminiApiKey'])
+  })
+
+  it('cannot be written through saveSettings', async () => {
+    await saveSettings(db, { googleAuth: signedIn })
+    expect(await getGoogleAuth(db)).toEqual(SIGNED_OUT)
+  })
+
+  it('is left alone by applySyncResult', async () => {
+    await saveGoogleAuth(db, signedIn)
+    await applySyncResult(db, { entries: [], customLanguages: [], settings: {}, googleAuth: SIGNED_OUT })
+    expect(await getGoogleAuth(db)).toEqual(signedIn)
+  })
+})
+
+describe('invalidateGoogleToken', () => {
+  const TOKEN = 'ya29.secret'
+  const signedIn = { enabled: true, accessToken: TOKEN, expiresAt: 1_800_000_000_000, needsLogin: false }
+
+  it('drops the rejected token but stays signed in', async () => {
+    await saveGoogleAuth(db, signedIn)
+    expect(await invalidateGoogleToken(db, { token: TOKEN })).toBe(true)
+    expect(await getGoogleAuth(db)).toEqual({ enabled: true, accessToken: '', expiresAt: 0, needsLogin: false })
+  })
+
+  it('marks needsLogin when asked', async () => {
+    await saveGoogleAuth(db, signedIn)
+    await invalidateGoogleToken(db, { token: TOKEN, needsLogin: true })
+    expect(await getGoogleAuth(db)).toEqual({ enabled: true, accessToken: '', expiresAt: 0, needsLogin: true })
+  })
+
+  it('keeps an existing needsLogin', async () => {
+    await saveGoogleAuth(db, { ...signedIn, needsLogin: true })
+    await invalidateGoogleToken(db, { token: TOKEN })
+    expect((await getGoogleAuth(db)).needsLogin).toBe(true)
+  })
+
+  it('keeps a newer token stored meanwhile (another tab, 重新登入)', async () => {
+    const fresh = { ...signedIn, accessToken: 'ya29.fresh', expiresAt: 1_900_000_000_000 }
+    await saveGoogleAuth(db, fresh)
+    expect(await invalidateGoogleToken(db, { token: TOKEN, needsLogin: true })).toBe(false)
+    expect(await getGoogleAuth(db)).toEqual(fresh)
+  })
+
+  it('does nothing without a token to compare', async () => {
+    await saveGoogleAuth(db, signedIn)
+    expect(await invalidateGoogleToken(db, { needsLogin: true })).toBe(false)
+    expect(await invalidateGoogleToken(db, { token: '' })).toBe(false)
+    await saveGoogleAuth(db, { enabled: true, needsLogin: true })
+    expect(await invalidateGoogleToken(db, { token: '' })).toBe(false)
+    expect((await getGoogleAuth(db)).enabled).toBe(true)
+  })
+
+  it('never signs a signed-out user back in', async () => {
+    expect(await invalidateGoogleToken(db, { token: TOKEN, needsLogin: true })).toBe(false)
+    expect((await getGoogleAuth(db)).enabled).toBe(false)
+    await saveGoogleAuth(db, { enabled: false, accessToken: TOKEN })
+    expect(await invalidateGoogleToken(db, { token: TOKEN, needsLogin: true })).toBe(false)
+    expect((await getGoogleAuth(db)).enabled).toBe(false)
+  })
+})
+
+describe('sync meta (local only)', () => {
+  it('defaults to never synced', async () => {
+    expect(await getSyncMeta(db)).toEqual({ lastSyncedAt: '' })
+  })
+
+  it('saves and reads back the last sync time', async () => {
+    await saveSyncMeta(db, { lastSyncedAt: '2026-10-19T08:00:00.000Z' })
+    expect(await getSyncMeta(db)).toEqual({ lastSyncedAt: '2026-10-19T08:00:00.000Z' })
+  })
+
+  it('ignores an invalid stored value', async () => {
+    await saveSyncMeta(db, { lastSyncedAt: 'garbage' })
+    expect(await getSyncMeta(db)).toEqual({ lastSyncedAt: '' })
+    await saveSyncMeta(db, { lastSyncedAt: 42 })
+    expect(await getSyncMeta(db)).toEqual({ lastSyncedAt: '' })
+  })
+
+  it('is never part of getSettings or the sync snapshot', async () => {
+    await saveSyncMeta(db, { lastSyncedAt: '2026-10-19T08:00:00.000Z' })
+    expect(Object.keys(await getSettings(db))).not.toContain('syncMeta')
+    expect(JSON.stringify(await readSyncSnapshot(db))).not.toContain('2026-10-19T08:00:00.000Z')
   })
 })

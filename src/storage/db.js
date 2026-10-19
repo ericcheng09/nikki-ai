@@ -6,6 +6,7 @@ import {
   resolveLanguageInput,
 } from '../lib/languages.js'
 import { updateEntry } from '../lib/diary.js'
+import { canonicalJson, mergeSync, purgeExpiredTombstones } from '../lib/sync.js'
 
 // Plain IndexedDB with small Promise helpers; no wrapper library.
 // Every function takes an open IDBDatabase so callers (and tests) control
@@ -40,6 +41,21 @@ function createDefaultSettings() {
 }
 
 const KNOWN_SETTING_KEYS = Object.freeze(Object.keys(createDefaultSettings()))
+
+// Synced single-value settings and the key of the record holding the time
+// of their last change (decisions.md Phase 4: last write wins for the API
+// key and the model). The timestamps are sync metadata: saveSettings sets
+// them itself, they cannot be written through it, and getSettings does
+// not return them, so the UI never sees or handles them.
+const TIMESTAMPED_SETTINGS = Object.freeze({
+  geminiApiKey: 'geminiApiKeyUpdatedAt',
+  geminiModel: 'geminiModelUpdatedAt',
+})
+
+// A value saved before Phase 4 has no timestamp. Reporting it as the epoch
+// makes any real timestamp win, while a device that never synced still
+// uploads its key (Planner decision, P4-T2).
+export const LEGACY_SETTING_UPDATED_AT = '1970-01-01T00:00:00.000Z'
 
 export function openDatabase({ factory = globalThis.indexedDB, name = DB_NAME } = {}) {
   return new Promise((resolve, reject) => {
@@ -143,14 +159,221 @@ export async function getSettings(db) {
 }
 
 // Saves the given settings in one transaction; unknown keys are ignored so
-// typos cannot silently create new settings.
-export async function saveSettings(db, partial) {
+// typos cannot silently create new settings. Every write of the API key or
+// the model (including clearing it) also stores its change time in the
+// same transaction, so sync can tell which device changed it last.
+export async function saveSettings(db, partial, { now = new Date() } = {}) {
+  const timestamp = now.toISOString()
   await runInStore(db, SETTINGS_STORE, 'readwrite', (store) => {
     for (const [key, value] of Object.entries(partial)) {
       // An explicit list: `in` on an object would also accept inherited
       // names such as toString or constructor from Object.prototype.
-      if (KNOWN_SETTING_KEYS.includes(key)) store.put(value, key)
+      if (!KNOWN_SETTING_KEYS.includes(key)) continue
+      store.put(value, key)
+      if (Object.hasOwn(TIMESTAMPED_SETTINGS, key)) {
+        store.put(timestamp, TIMESTAMPED_SETTINGS[key])
+      }
     }
+  })
+}
+
+// --- Google sign-in state (decisions.md Phase 4) ----------------------------
+// Local only: one record outside KNOWN_SETTING_KEYS, so getSettings,
+// saveSettings and the sync snapshot never see it. It holds the OAuth
+// access token, which must never be synced, logged or shown.
+const GOOGLE_AUTH_KEY = 'googleAuth'
+
+function defaultGoogleAuth() {
+  return { enabled: false, accessToken: '', expiresAt: 0, needsLogin: false }
+}
+
+// { enabled, accessToken, expiresAt (ms since epoch), needsLogin }; fields
+// of the wrong type fall back to the signed-out defaults.
+export async function getGoogleAuth(db) {
+  const stored = await runInStore(db, SETTINGS_STORE, 'readonly', (store) =>
+    store.get(GOOGLE_AUTH_KEY),
+  )
+  const auth = defaultGoogleAuth()
+  if (stored && typeof stored === 'object') {
+    if (typeof stored.enabled === 'boolean') auth.enabled = stored.enabled
+    if (typeof stored.accessToken === 'string') auth.accessToken = stored.accessToken
+    if (Number.isFinite(stored.expiresAt)) auth.expiresAt = stored.expiresAt
+    if (typeof stored.needsLogin === 'boolean') auth.needsLogin = stored.needsLogin
+  }
+  return auth
+}
+
+// Replaces the whole record; omitted fields are reset to the defaults.
+export async function saveGoogleAuth(db, auth) {
+  const record = { ...defaultGoogleAuth(), ...auth }
+  await runInStore(db, SETTINGS_STORE, 'readwrite', (store) =>
+    store.put(record, GOOGLE_AUTH_KEY),
+  )
+}
+
+// Clears the stored access token `token` (and, with `needsLogin`, marks
+// that a new sign-in is needed). Used when Drive rejects a token that had
+// not expired yet (e.g. revoked). Checked and written in one transaction:
+// nothing happens unless sync is still enabled AND the stored token is
+// still the rejected one, so neither a sign-out nor a newer token (from
+// another tab or a parallel 重新登入) is ever undone. Resolves with
+// whether the record was changed.
+export function invalidateGoogleToken(db, { token, needsLogin = false } = {}) {
+  return runTransaction(db, SETTINGS_STORE, 'readwrite', (tx) => {
+    const store = tx.objectStore(SETTINGS_STORE)
+    const request = store.get(GOOGLE_AUTH_KEY)
+    let changed = false
+    request.onsuccess = () => {
+      const stored = request.result
+      if (!stored || typeof stored !== 'object' || stored.enabled !== true) return
+      if (typeof token !== 'string' || token === '' || stored.accessToken !== token) return
+      store.put(
+        {
+          ...defaultGoogleAuth(),
+          ...stored,
+          accessToken: '',
+          expiresAt: 0,
+          needsLogin: needsLogin || stored.needsLogin === true,
+        },
+        GOOGLE_AUTH_KEY,
+      )
+      changed = true
+    }
+    return () => changed
+  })
+}
+
+// Local-only sync bookkeeping ({ lastSyncedAt: ISO string | '' }), stored
+// outside KNOWN_SETTING_KEYS like googleAuth, so it is never synced.
+const SYNC_META_KEY = 'syncMeta'
+
+export async function getSyncMeta(db) {
+  const stored = await runInStore(db, SETTINGS_STORE, 'readonly', (store) =>
+    store.get(SYNC_META_KEY),
+  )
+  const lastSyncedAt =
+    stored && typeof stored.lastSyncedAt === 'string' && !Number.isNaN(Date.parse(stored.lastSyncedAt))
+      ? stored.lastSyncedAt
+      : ''
+  return { lastSyncedAt }
+}
+
+export async function saveSyncMeta(db, { lastSyncedAt }) {
+  await runInStore(db, SETTINGS_STORE, 'readwrite', (store) =>
+    store.put({ lastSyncedAt }, SYNC_META_KEY),
+  )
+}
+
+// --- Sync (spec 6, decisions.md Phase 4) ------------------------------------
+
+// Queues reads of everything sync needs inside `tx` (both stores) and calls
+// `done(snapshot)` from the last request's success handler. Requests in one
+// transaction complete in the order they were made, so every earlier
+// result is available by then, and `done` may still write within `tx`.
+// Snapshot shape: see src/lib/sync.js. A setting that was never stored is
+// left out; a stored one without a timestamp gets the legacy epoch.
+function readSnapshotInTransaction(tx, done) {
+  const entriesRequest = tx.objectStore(ENTRIES_STORE).getAll()
+  const settings = tx.objectStore(SETTINGS_STORE)
+  const languagesRequest = settings.get('customLanguages')
+  const fieldRequests = Object.entries(TIMESTAMPED_SETTINGS).map(([key, timeKey]) => ({
+    key,
+    value: settings.get(key),
+    time: settings.get(timeKey),
+  }))
+  const last = fieldRequests.at(-1).time
+  last.onsuccess = () => {
+    try {
+      const snapshotSettings = {}
+      for (const { key, value, time } of fieldRequests) {
+        if (value.result === undefined) continue
+        snapshotSettings[key] = {
+          value: value.result,
+          updatedAt: typeof time.result === 'string' ? time.result : LEGACY_SETTING_UPDATED_AT,
+        }
+      }
+      done({
+        entries: entriesRequest.result ?? [],
+        customLanguages: languagesRequest.result ?? [],
+        settings: snapshotSettings,
+      })
+    } catch {
+      // Abort instead of letting the exception escape the event handler.
+      tx.abort()
+    }
+  }
+}
+
+// Everything that is synced, read in one readonly transaction so entries
+// and settings are consistent with each other. Entries include
+// tombstones; customLanguages is the stored list as-is (sync validates).
+export function readSyncSnapshot(db) {
+  return runTransaction(db, [ENTRIES_STORE, SETTINGS_STORE], 'readonly', (tx) => {
+    let snapshot
+    readSnapshotInTransaction(tx, (result) => {
+      snapshot = result
+    })
+    return () => snapshot
+  })
+}
+
+// Writes a sync result (`merged` from mergeSync) in one readwrite
+// transaction. The network round trip takes time, so local data may have
+// changed since the snapshot was read: `merged` is therefore merged once
+// more with the data stored NOW, using the same rules (sync.js), and only
+// the records where `merged` wins are written. A local change made in the
+// meantime is newer and so is kept; the next sync uploads it.
+// - entries / settings fields: written only when absent locally or when
+//   the merged version wins and differs from the stored one;
+// - customLanguages: the list is rewritten only if the result differs;
+// - hard deletes: only local tombstones the purge removed (still expired
+//   tombstones at `now`); live records are never deleted.
+// Resolves with true when anything was written.
+export function applySyncResult(db, merged, { now = new Date() } = {}) {
+  return runTransaction(db, [ENTRIES_STORE, SETTINGS_STORE], 'readwrite', (tx) => {
+    let changed = false
+    readSnapshotInTransaction(tx, (current) => {
+      const result = mergeSync(current, merged, { now }).merged
+      const entries = tx.objectStore(ENTRIES_STORE)
+      const settings = tx.objectStore(SETTINGS_STORE)
+
+      const stored = new Map()
+      for (const record of current.entries) {
+        if (record && typeof record.id === 'string') stored.set(record.id, record)
+      }
+      const kept = new Set()
+      for (const record of result.entries) {
+        kept.add(record.id)
+        const local = stored.get(record.id)
+        if (local && canonicalJson(local) === canonicalJson(record)) continue
+        entries.put(record)
+        changed = true
+      }
+      for (const [id, local] of stored) {
+        if (kept.has(id) || local.deleted !== true) continue
+        // Absent from the result: either purged or malformed. Only an
+        // expired tombstone is removed; anything else stays untouched.
+        if (purgeExpiredTombstones([local], now).length === 0) {
+          entries.delete(id)
+          changed = true
+        }
+      }
+
+      if (canonicalJson(result.customLanguages) !== canonicalJson(current.customLanguages)) {
+        settings.put(result.customLanguages, 'customLanguages')
+        changed = true
+      }
+
+      for (const [key, timeKey] of Object.entries(TIMESTAMPED_SETTINGS)) {
+        const field = result.settings[key]
+        if (!field) continue
+        if (canonicalJson(field) === canonicalJson(current.settings[key])) continue
+        settings.put(field.value, key)
+        settings.put(field.updatedAt, timeKey)
+        changed = true
+      }
+    })
+    return () => changed
   })
 }
 

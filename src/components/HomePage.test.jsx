@@ -1,6 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'react-router-dom'
 import HomePage from './HomePage.jsx'
+import { syncReplacedData } from '../storage/syncSignals.js'
+import { act } from '@testing-library/react'
 import {
   isWelcomeSeenThisSession,
   loadEntries,
@@ -30,6 +32,9 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Unmount before resetting the mocks, so no late effect calls a mock
+  // that has already been reset (it would return undefined and throw).
+  cleanup()
   vi.mocked(loadEntries).mockReset()
   vi.mocked(loadSettings).mockReset()
 })
@@ -305,7 +310,8 @@ describe('HomePage calendar selection', () => {
     // still loading.
     await screen.findByRole('table')
     expect(screen.getByText('載入中…')).toBeInTheDocument()
-    expect(loadEntries).toHaveBeenCalled()
+    // The list's load effect may run just after the calendar appears.
+    await waitFor(() => expect(loadEntries).toHaveBeenCalled())
     expect(search()).toBe('?month=2026-10&date=2026-10-07')
   })
 
@@ -317,3 +323,44 @@ describe('HomePage calendar selection', () => {
   })
 })
 
+
+describe('HomePage after a sync', () => {
+  const synced = {
+    id: 's1',
+    date: '2026-10-05',
+    content: 'from another device',
+    createdAt: '2026-10-05T01:00:00.000Z',
+    updatedAt: '2026-10-05T01:00:00.000Z',
+    deleted: false,
+    deletedAt: null,
+  }
+
+  it('reloads the entries when a sync wrote new data', async () => {
+    vi.mocked(loadSettings).mockResolvedValue({ welcomeSeen: true })
+    renderHome()
+    expect(await screen.findByText(/還沒有日記/)).toBeInTheDocument()
+    vi.mocked(loadEntries).mockResolvedValue([synced])
+    await act(async () => syncReplacedData.emit())
+    expect(await screen.findByText(/from another device/)).toBeInTheDocument()
+    expect(loadEntries).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the shown entries when the reload fails', async () => {
+    vi.mocked(loadSettings).mockResolvedValue({ welcomeSeen: true })
+    vi.mocked(loadEntries).mockResolvedValue([synced])
+    renderHome()
+    expect(await screen.findByText(/from another device/)).toBeInTheDocument()
+    vi.mocked(loadEntries).mockRejectedValue(new Error('idb'))
+    await act(async () => syncReplacedData.emit())
+    expect(screen.getByText(/from another device/)).toBeInTheDocument()
+  })
+
+  it('stops listening after unmount', async () => {
+    vi.mocked(loadSettings).mockResolvedValue({ welcomeSeen: true })
+    const { unmount } = renderHome()
+    await screen.findByText(/還沒有日記/)
+    unmount()
+    await act(async () => syncReplacedData.emit())
+    expect(loadEntries).toHaveBeenCalledTimes(1)
+  })
+})

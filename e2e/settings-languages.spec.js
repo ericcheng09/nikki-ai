@@ -94,7 +94,7 @@ test.describe('settings: 語言清單', () => {
     page,
   }) => {
     await openSettings(page)
-    expect(await sectionHeadings(page)).toEqual(['Gemini API key', '語言清單'])
+    expect(await sectionHeadings(page)).toEqual(['Gemini API key', '語言清單', 'Google Drive 同步'])
     await expect(listSection(page).getByText(EMPTY_TEXT, { exact: true })).toBeVisible()
     await expect(listSection(page).locator('li')).toHaveCount(0)
   })
@@ -107,12 +107,12 @@ test.describe('settings: 語言清單', () => {
     await keySection(page).getByLabel('API key', { exact: true }).fill('test-key-123')
     await keySection(page).getByRole('button', { name: '儲存' }).click()
     await expect(page.getByRole('region', { name: 'Gemini 模型' })).toBeVisible()
-    expect(await sectionHeadings(page)).toEqual(['Gemini API key', 'Gemini 模型', '語言清單'])
+    expect(await sectionHeadings(page)).toEqual(['Gemini API key', 'Gemini 模型', '語言清單', 'Google Drive 同步'])
     await expect(listSection(page).getByText(EMPTY_TEXT, { exact: true })).toBeVisible()
 
     await keySection(page).getByRole('button', { name: '刪除', exact: true }).click()
     await expect(keySection(page).locator('form').getByRole('status')).toHaveText('已刪除')
-    expect(await sectionHeadings(page)).toEqual(['Gemini API key', '語言清單'])
+    expect(await sectionHeadings(page)).toEqual(['Gemini API key', '語言清單', 'Google Drive 同步'])
     await expect(listSection(page)).toBeVisible()
   })
 

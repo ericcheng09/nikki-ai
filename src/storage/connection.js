@@ -13,8 +13,29 @@ import {
   addCustomLanguage,
   getSettings,
   saveSettings,
+  readSyncSnapshot as readSnapshotFromDb,
+  LEGACY_SETTING_UPDATED_AT,
+  applySyncResult as applySyncResultToDb,
+  getGoogleAuth,
+  saveGoogleAuth,
+  invalidateGoogleToken as invalidateGoogleTokenInDb,
+  getSyncMeta,
+  saveSyncMeta,
 } from './db.js'
 import { softDeleteEntry } from '../lib/diary.js'
+import { activeLanguageNames } from '../lib/languages.js'
+import {
+  onSyncedDataChange,
+  onSyncReplacedData,
+  syncedDataChange,
+  syncReplacedData,
+} from './syncSignals.js'
+
+// Add/remove resolve with the active names after the call; comparing the
+// count with the one before tells whether the list was actually written.
+function activeCount(list) {
+  return activeLanguageNames(list).length
+}
 
 export function createConnection(open = openDatabase) {
   let dbPromise = null
@@ -35,6 +56,12 @@ export function createConnection(open = openDatabase) {
 
 const connection = createConnection()
 
+// Change notifications (decisions.md Phase 4); see syncSignals.js.
+export { onSyncedDataChange, onSyncReplacedData }
+
+// Settings that are synced; welcomeSeen is local only (spec 4.3).
+const SYNCED_SETTING_KEYS = ['geminiApiKey', 'geminiModel', 'customLanguages']
+
 export function getDb() {
   return connection.getDb()
 }
@@ -46,12 +73,14 @@ export async function loadEntries() {
 
 export async function saveEntry(entry) {
   await putEntry(await getDb(), entry)
+  syncedDataChange.emit()
 }
 
 // Saves an entry and adds `language` (typed via 「其他」) to the custom
 // language list in the same transaction; see putEntryAddingLanguage.
 export async function saveEntryAddingLanguage(entry, language) {
   await putEntryAddingLanguage(await getDb(), entry, language)
+  syncedDataChange.emit()
 }
 
 // Saves an edit of an existing entry: date, content and language from
@@ -61,14 +90,19 @@ export async function saveEntryAddingLanguage(entry, language) {
 // record, or null when the entry is missing or deleted (nothing is
 // written); see putEntryEdit.
 export async function saveEntryEdit(base, changes, languageToAdd) {
-  return putEntryEdit(await getDb(), base, changes, { languageToAdd })
+  const written = await putEntryEdit(await getDb(), base, changes, { languageToAdd })
+  // null means nothing was written (entry missing or deleted).
+  if (written) syncedDataChange.emit()
+  return written
 }
 
 // Stores an AI analysis on entry `id` without touching its other fields.
 // Resolves with the written record, or null when the entry is missing or
 // deleted (the result is discarded); see putEntryAnalysis.
 export async function saveEntryAnalysis(id, analysis) {
-  return putEntryAnalysis(await getDb(), id, analysis)
+  const written = await putEntryAnalysis(await getDb(), id, analysis)
+  if (written) syncedDataChange.emit()
+  return written
 }
 
 // Returns the stored record for `id` as-is (it may be a soft-delete
@@ -87,14 +121,29 @@ export async function deleteEntry(entry) {
 
 // Adds a custom language to the list right away (editor's 「加入」) and
 // resolves with the active names; see addCustomLanguage in db.js.
+// Notifies only when the name became active, i.e. something was written.
+// `before` is read in a separate transaction, so another tab changing the
+// list in between can make this miss (or add) one notification. That is
+// harmless: the other tab's own write notified its own sync, and any
+// missed change is uploaded by the next sync (open, online, manual or the
+// next change).
 export async function saveCustomLanguage(name) {
-  return addCustomLanguage(await getDb(), name)
+  const db = await getDb()
+  const before = (await getSettings(db)).customLanguages
+  const names = await addCustomLanguage(db, name)
+  if (names.length !== activeCount(before)) syncedDataChange.emit()
+  return names
 }
 
 // Soft-deletes a custom language and resolves with the remaining active
 // names; see removeCustomLanguage in db.js.
+// Same cross-tab caveat as saveCustomLanguage for the notification.
 export async function deleteCustomLanguage(name) {
-  return removeCustomLanguage(await getDb(), name)
+  const db = await getDb()
+  const before = (await getSettings(db)).customLanguages
+  const names = await removeCustomLanguage(db, name)
+  if (names.length !== activeCount(before)) syncedDataChange.emit()
+  return names
 }
 
 // All known settings with defaults filled in (spec 4.3).
@@ -103,8 +152,56 @@ export async function loadSettings() {
 }
 
 // Saves the given settings; unknown keys are ignored by the db layer.
-export async function updateSettings(partial) {
-  await saveSettings(await getDb(), partial)
+// Notifies sync when a synced setting was part of the write.
+// `automatic: true` marks a value the app chose by itself (the automatic
+// Flash model choice): it is stamped with the legacy epoch instead of now,
+// so it never overrides a choice the user made on another device, while a
+// device without any other value still syncs it (decisions.md Phase 4).
+export async function updateSettings(partial, { automatic = false } = {}) {
+  const options = automatic ? { now: new Date(LEGACY_SETTING_UPDATED_AT) } : {}
+  await saveSettings(await getDb(), partial, options)
+  if (SYNCED_SETTING_KEYS.some((key) => Object.hasOwn(partial, key))) {
+    syncedDataChange.emit()
+  }
+}
+
+// Everything that is synced, in the sync.js snapshot shape.
+export async function readSyncSnapshot() {
+  return readSnapshotFromDb(await getDb())
+}
+
+// Writes a merged sync result (see applySyncResult in db.js) and, when it
+// changed anything, tells the pages to reload. It deliberately does not
+// emit syncedDataChange, which would schedule another sync. Resolves with
+// whether anything was written.
+export async function applySyncResult(merged) {
+  const changed = await applySyncResultToDb(await getDb(), merged)
+  if (changed) syncReplacedData.emit()
+  return changed
+}
+
+// Local-only Google sign-in state (token, flag); see getGoogleAuth in
+// db.js. Never synced and never part of loadSettings().
+export async function loadGoogleAuth() {
+  return getGoogleAuth(await getDb())
+}
+
+export async function storeGoogleAuth(auth) {
+  await saveGoogleAuth(await getDb(), auth)
+}
+
+// Drops a stored token Drive rejected; see invalidateGoogleToken in db.js.
+export async function invalidateGoogleToken(options) {
+  return invalidateGoogleTokenInDb(await getDb(), options)
+}
+
+// Local-only time of the last successful sync ('' = never).
+export async function loadLastSyncedAt() {
+  return (await getSyncMeta(await getDb())).lastSyncedAt
+}
+
+export async function storeLastSyncedAt(lastSyncedAt) {
+  await saveSyncMeta(await getDb(), { lastSyncedAt })
 }
 
 // Remembers, for this page load only, that the user pressed 開始使用.

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { activeLanguageNames } from '../lib/languages.js'
 import { deleteCustomLanguage, loadSettings } from '../storage/connection.js'
+import useSyncReplacedData from '../lib/useSyncReplacedData.js'
 
 // 語言清單 section of the settings page (spec 3.6). Lists the custom
 // languages the user has typed in the editor and lets them be deleted.
@@ -33,6 +34,16 @@ export default function LanguageListSettings() {
       active = false
     }
   }, [])
+
+  // A sync changed the list on another device: show the new one.
+  useSyncReplacedData(() => {
+    loadSettings()
+      .then((settings) => {
+        setNames(activeLanguageNames(settings.customLanguages))
+        setStatus('ready')
+      })
+      .catch(() => {})
+  })
 
   async function handleDelete(name) {
     // No confirmation dialog (decisions.md Phase 2 設定頁).

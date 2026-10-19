@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { loadSettings, updateSettings } from '../storage/connection.js'
+import useSyncReplacedData from '../lib/useSyncReplacedData.js'
 
 const AI_STUDIO_URL = 'https://aistudio.google.com/apikey'
 
@@ -87,14 +88,31 @@ export default function ApiKeySettings({ onKeyChange, keyCheck, onRetry }) {
     if (!checkRetryable) checkLineRef.current?.focus()
   }, [retrying, checkStatus, checkRetryable])
 
+  // Mirror savedKey and value for the sync handler. They are written at the
+  // moment the key is loaded or saved (not in a later effect), so a sync
+  // that arrives right after the page opens never compares against a stale
+  // ''. The effect below only keeps valueRef in step with typing.
+  const savedKeyRef = useRef('')
+  const valueRef = useRef('')
+  useEffect(() => {
+    valueRef.current = value
+  })
+  function applySavedKey(key, { updateValue }) {
+    savedKeyRef.current = key
+    setSavedKey(key)
+    if (updateValue) {
+      valueRef.current = key
+      setValue(key)
+    }
+  }
+
   useEffect(() => {
     let active = true
     loadSettings()
       .then((settings) => {
         if (!active) return
         const key = settings.geminiApiKey ?? ''
-        setSavedKey(key)
-        setValue(key)
+        applySavedKey(key, { updateValue: true })
         setGuideOpen(!key)
         setStatus('ready')
         onKeyChangeRef.current?.(key)
@@ -108,6 +126,22 @@ export default function ApiKeySettings({ onKeyChange, keyCheck, onRetry }) {
       active = false
     }
   }, [])
+
+  // A sync brought a key from another device (or its deletion): show it
+  // and check it. Text the user is typing (input differs from the saved
+  // key) is left alone; only the saved state is updated.
+  useSyncReplacedData(() => {
+    loadSettings()
+      .then((settings) => {
+        if (busyRef.current) return
+        const key = settings.geminiApiKey ?? ''
+        if (key === savedKeyRef.current) return
+        applySavedKey(key, { updateValue: valueRef.current === savedKeyRef.current })
+        setStatus('ready')
+        onKeyChangeRef.current?.(key)
+      })
+      .catch(() => {})
+  })
 
   function clearMessages() {
     setError('')
@@ -125,8 +159,7 @@ export default function ApiKeySettings({ onKeyChange, keyCheck, onRetry }) {
     clearMessages()
     try {
       await updateSettings({ geminiApiKey: key })
-      setSavedKey(key)
-      setValue(key)
+      applySavedKey(key, { updateValue: true })
       onKeyChangeRef.current?.(key)
       return true
     } catch {
@@ -292,7 +325,7 @@ export default function ApiKeySettings({ onKeyChange, keyCheck, onRetry }) {
           <li>複製產生的 key，貼到上方欄位後按「儲存」。</li>
         </ol>
         <p className="muted">
-          API key 只會存在這個瀏覽器，只用來呼叫 Gemini，不會傳送到其他地方。
+          API key 存在這個瀏覽器；登入 Google 後，也會同步到你 Google Drive 中只有這個 App 看得到的資料夾。只用來呼叫 Gemini，不會傳送到其他地方。
         </p>
       </div>
     </section>

@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import LanguageListSettings from './LanguageListSettings.jsx'
+import { syncReplacedData } from '../storage/syncSignals.js'
 import { deleteCustomLanguage, loadSettings } from '../storage/connection.js'
 
 vi.mock('../storage/connection.js', () => ({
@@ -157,5 +158,25 @@ describe('LanguageListSettings', () => {
     render(<LanguageListSettings />)
     expect(await screen.findByRole('alert')).toHaveTextContent('無法讀取設定，請重新整理頁面。')
     expect(screen.queryByText(EMPTY_TEXT)).not.toBeInTheDocument()
+  })
+})
+
+describe('LanguageListSettings after a sync', () => {
+  it('reloads the list when a sync wrote new data', async () => {
+    withList([item('Deutsch')])
+    render(<LanguageListSettings />)
+    expect(await screen.findByText('Deutsch')).toBeInTheDocument()
+    withList([item('Deutsch', true), item('Español')])
+    await act(async () => syncReplacedData.emit())
+    expect(rowNames()).toEqual(['Español'])
+  })
+
+  it('keeps the list when the reload fails', async () => {
+    withList([item('Deutsch')])
+    render(<LanguageListSettings />)
+    await screen.findByText('Deutsch')
+    vi.mocked(loadSettings).mockRejectedValue(new Error('idb'))
+    await act(async () => syncReplacedData.emit())
+    expect(rowNames()).toEqual(['Deutsch'])
   })
 })

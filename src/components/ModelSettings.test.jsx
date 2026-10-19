@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import ModelSettings from './ModelSettings.jsx'
+import { syncReplacedData } from '../storage/syncSignals.js'
 import { listModels } from '../lib/gemini.js'
 import useModelQuery from '../lib/useModelQuery.js'
 import { loadSettings, updateSettings } from '../storage/connection.js'
@@ -65,6 +66,9 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Unmount before resetting the mocks, so no late effect calls a mock
+  // that has already been reset (it would return undefined).
+  cleanup()
   for (const spy of consoleSpies) {
     expect(spy).not.toHaveBeenCalled()
     spy.mockRestore()
@@ -104,7 +108,7 @@ describe('ModelSettings', () => {
     const select = await screen.findByLabelText('模型')
     expect(select).toHaveValue(FLASH.name)
     expect(updateSettings).toHaveBeenCalledTimes(1)
-    expect(updateSettings).toHaveBeenCalledWith({ geminiModel: FLASH.name })
+    expect(updateSettings).toHaveBeenCalledWith({ geminiModel: FLASH.name }, { automatic: true })
   })
 
   it('auto-selects and saves the newest flash model when none is chosen', async () => {
@@ -113,7 +117,7 @@ describe('ModelSettings', () => {
     const select = await screen.findByLabelText('模型')
     expect(select).toHaveValue(FLASH.name)
     expect(updateSettings).toHaveBeenCalledTimes(1)
-    expect(updateSettings).toHaveBeenCalledWith({ geminiModel: FLASH.name })
+    expect(updateSettings).toHaveBeenCalledWith({ geminiModel: FLASH.name }, { automatic: true })
   })
 
   it('matches flash case-insensitively', async () => {
@@ -121,7 +125,7 @@ describe('ModelSettings', () => {
     vi.mocked(listModels).mockResolvedValue([EXP, UPPER_FLASH])
     render(<Harness />)
     expect(await screen.findByLabelText('模型')).toHaveValue(UPPER_FLASH.name)
-    expect(updateSettings).toHaveBeenCalledWith({ geminiModel: UPPER_FLASH.name })
+    expect(updateSettings).toHaveBeenCalledWith({ geminiModel: UPPER_FLASH.name }, { automatic: true })
   })
 
   it('lists only stable main text models', async () => {
@@ -147,7 +151,7 @@ describe('ModelSettings', () => {
     expect(Array.from(select.options).map((o) => o.value)).toEqual([EXP.name, FLASH_PREVIEW.name])
     // Auto-selection works on the shown (fallback) list.
     expect(select).toHaveValue(FLASH_PREVIEW.name)
-    expect(updateSettings).toHaveBeenCalledWith({ geminiModel: FLASH_PREVIEW.name })
+    expect(updateSettings).toHaveBeenCalledWith({ geminiModel: FLASH_PREVIEW.name }, { automatic: true })
   })
 
   it('keeps a saved hidden model selectable, without a warning', async () => {
@@ -195,7 +199,9 @@ describe('ModelSettings', () => {
     const select = await screen.findByLabelText('模型')
     fireEvent.change(select, { target: { value: PRO.name } })
     expect(await screen.findByText('已儲存')).toBeInTheDocument()
+    // A user's choice is not automatic, so it is stamped with the real time.
     expect(updateSettings).toHaveBeenCalledWith({ geminiModel: PRO.name })
+    expect(updateSettings.mock.calls.at(-1)).toHaveLength(1)
     expect(select).toHaveValue(PRO.name)
   })
 
@@ -292,5 +298,27 @@ describe('ModelSettings', () => {
     unmount()
     await act(async () => load.resolve({ geminiModel: '' }))
     expect(updateSettings).not.toHaveBeenCalled()
+  })
+})
+
+describe('ModelSettings after a sync', () => {
+  it('selects the model a sync brought from another device', async () => {
+    withModel(PRO.name)
+    render(<Harness />)
+    const select = await screen.findByLabelText('模型')
+    expect(select).toHaveValue(PRO.name)
+    withModel(FLASH.name)
+    await act(async () => syncReplacedData.emit())
+    expect(select).toHaveValue(FLASH.name)
+    expect(updateSettings).not.toHaveBeenCalled()
+  })
+
+  it('keeps the selection when the reload fails', async () => {
+    withModel(PRO.name)
+    render(<Harness />)
+    const select = await screen.findByLabelText('模型')
+    vi.mocked(loadSettings).mockRejectedValue(new Error('idb'))
+    await act(async () => syncReplacedData.emit())
+    expect(select).toHaveValue(PRO.name)
   })
 })
