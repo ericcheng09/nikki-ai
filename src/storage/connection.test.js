@@ -15,6 +15,10 @@ import {
   updateSettings,
   isWelcomeSeenThisSession,
   markWelcomeSeen,
+  onSyncedDataChange,
+  onSyncReplacedData,
+  readSyncSnapshot,
+  applySyncResult,
 } from './connection.js'
 
 describe('createConnection', () => {
@@ -219,5 +223,149 @@ describe('markWelcomeSeen', () => {
 
     expect(isWelcomeSeenThisSession()).toBe(true)
     expect(await loadSettings()).toEqual({ welcomeSeen: true, geminiApiKey: '', geminiModel: '', customLanguages: [] })
+  })
+})
+
+describe('sync change notifications', () => {
+  const T1 = '2026-10-01T00:00:00.000Z'
+  const base = (id) => ({
+    id,
+    date: '2026-10-17',
+    content: 'Hello',
+    language: 'auto',
+    createdAt: T1,
+    updatedAt: T1,
+    deleted: false,
+    deletedAt: null,
+    analysis: null,
+  })
+
+  let changed
+  let replaced
+  let unsubscribe
+  beforeEach(async () => {
+    await updateSettings({ customLanguages: [] })
+    changed = vi.fn()
+    replaced = vi.fn()
+    const offChange = onSyncedDataChange(changed)
+    const offReplace = onSyncReplacedData(replaced)
+    unsubscribe = () => {
+      offChange()
+      offReplace()
+    }
+  })
+  afterEach(() => unsubscribe())
+
+  it('fires after saving, editing, analysing and deleting an entry', async () => {
+    await saveEntry(base('n-1'))
+    expect(changed).toHaveBeenCalledTimes(1)
+    await saveEntryEdit(base('n-1'), { content: 'Edited' })
+    expect(changed).toHaveBeenCalledTimes(2)
+    await saveEntryAnalysis('n-1', { correctedText: 'x' })
+    expect(changed).toHaveBeenCalledTimes(3)
+    await deleteEntry(base('n-1'))
+    expect(changed).toHaveBeenCalledTimes(4)
+    await saveEntryAddingLanguage(base('n-2'), '韓文')
+    expect(changed).toHaveBeenCalledTimes(5)
+    expect(replaced).not.toHaveBeenCalled()
+  })
+
+  it('does not fire when an edit or analysis wrote nothing', async () => {
+    await saveEntryEdit(base('n-missing'), { content: 'x' })
+    await saveEntryAnalysis('n-missing', { correctedText: 'x' })
+    expect(changed).not.toHaveBeenCalled()
+  })
+
+  it('fires once the write is committed, not before', async () => {
+    let storedWhenNotified
+    changed.mockImplementation(() => {
+      storedWhenNotified = loadEntry('n-3')
+    })
+    await saveEntry(base('n-3'))
+    expect(await storedWhenNotified).toEqual(base('n-3'))
+  })
+
+  it('fires for language add/remove only when the list changed', async () => {
+    await saveCustomLanguage('泰文')
+    expect(changed).toHaveBeenCalledTimes(1)
+    await saveCustomLanguage('泰文')
+    await saveCustomLanguage('日文')
+    expect(changed).toHaveBeenCalledTimes(1)
+    await deleteCustomLanguage('泰文')
+    expect(changed).toHaveBeenCalledTimes(2)
+    await deleteCustomLanguage('泰文')
+    expect(changed).toHaveBeenCalledTimes(2)
+  })
+
+  it('fires for the API key and model but not for welcomeSeen', async () => {
+    await updateSettings({ geminiApiKey: 'k' })
+    await updateSettings({ geminiApiKey: '' })
+    await updateSettings({ geminiModel: 'models/x' })
+    expect(changed).toHaveBeenCalledTimes(3)
+    await updateSettings({ welcomeSeen: true })
+    await markWelcomeSeen()
+    expect(changed).toHaveBeenCalledTimes(3)
+  })
+
+  it('fires for settings and languages only after the write is committed', async () => {
+    const seen = []
+    changed.mockImplementation(() => {
+      seen.push(loadSettings())
+    })
+    await updateSettings({ geminiApiKey: 'committed-key' })
+    await updateSettings({ geminiModel: 'models/committed' })
+    await saveCustomLanguage('越南文')
+    const [afterKey, afterModel, afterLanguage] = await Promise.all(seen)
+    expect(afterKey.geminiApiKey).toBe('committed-key')
+    expect(afterModel.geminiModel).toBe('models/committed')
+    expect(afterLanguage.customLanguages.map((item) => item.name)).toContain('越南文')
+    await updateSettings({ geminiApiKey: '', geminiModel: '' })
+  })
+
+  it('stamps an automatic model choice with the legacy epoch, a user choice with now', async () => {
+    await updateSettings({ geminiModel: 'models/auto' }, { automatic: true })
+    expect((await readSyncSnapshot()).settings.geminiModel).toEqual({
+      value: 'models/auto',
+      updatedAt: '1970-01-01T00:00:00.000Z',
+    })
+    // Still a synced change: a device without any model uploads it.
+    expect(changed).toHaveBeenCalledTimes(1)
+    const before = Date.now()
+    await updateSettings({ geminiModel: 'models/user' })
+    const { updatedAt } = (await readSyncSnapshot()).settings.geminiModel
+    expect(Date.parse(updatedAt)).toBeGreaterThanOrEqual(before)
+    await updateSettings({ geminiModel: '' })
+  })
+
+  it('keeps other listeners and the write working when a listener throws', async () => {
+    const off = onSyncedDataChange(() => {
+      throw new Error('boom')
+    })
+    await expect(saveEntry(base('n-4'))).resolves.toBeUndefined()
+    expect(changed).toHaveBeenCalledTimes(1)
+    off()
+  })
+
+  it('stops calling a listener after unsubscribe', async () => {
+    unsubscribe()
+    await saveEntry(base('n-5'))
+    expect(changed).not.toHaveBeenCalled()
+  })
+
+  it('applySyncResult signals replaced data, never a synced change', async () => {
+    const snapshot = await readSyncSnapshot()
+    const incoming = { ...base('n-remote'), updatedAt: '2026-10-05T00:00:00.000Z' }
+    await expect(
+      applySyncResult({ ...snapshot, entries: [...snapshot.entries, incoming] }),
+    ).resolves.toBe(true)
+    expect(await loadEntry('n-remote')).toEqual(incoming)
+    expect(replaced).toHaveBeenCalledTimes(1)
+    expect(changed).not.toHaveBeenCalled()
+  })
+
+  it('does not signal when applySyncResult changed nothing', async () => {
+    await expect(applySyncResult(await readSyncSnapshot())).resolves.toBe(false)
+    expect(replaced).not.toHaveBeenCalled()
+    expect(changed).not.toHaveBeenCalled()
   })
 })

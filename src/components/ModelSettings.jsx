@@ -62,7 +62,9 @@ export default function ModelSettings({ query }) {
         const flash = pickDefaultModel(shownModels(list))
         if (flash) {
           try {
-            await updateSettings({ geminiModel: flash.name })
+            // Automatic: must not override a user's choice synced from
+            // another device (decisions.md Phase 4).
+            await updateSettings({ geminiModel: flash.name }, { automatic: true })
             if (!active) return
             rememberModel(flash.name)
           } catch {

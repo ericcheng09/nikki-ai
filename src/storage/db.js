@@ -6,6 +6,7 @@ import {
   resolveLanguageInput,
 } from '../lib/languages.js'
 import { updateEntry } from '../lib/diary.js'
+import { canonicalJson, mergeSync, purgeExpiredTombstones } from '../lib/sync.js'
 
 // Plain IndexedDB with small Promise helpers; no wrapper library.
 // Every function takes an open IDBDatabase so callers (and tests) control
@@ -40,6 +41,21 @@ function createDefaultSettings() {
 }
 
 const KNOWN_SETTING_KEYS = Object.freeze(Object.keys(createDefaultSettings()))
+
+// Synced single-value settings and the key of the record holding the time
+// of their last change (decisions.md Phase 4: last write wins for the API
+// key and the model). The timestamps are sync metadata: saveSettings sets
+// them itself, they cannot be written through it, and getSettings does
+// not return them, so the UI never sees or handles them.
+const TIMESTAMPED_SETTINGS = Object.freeze({
+  geminiApiKey: 'geminiApiKeyUpdatedAt',
+  geminiModel: 'geminiModelUpdatedAt',
+})
+
+// A value saved before Phase 4 has no timestamp. Reporting it as the epoch
+// makes any real timestamp win, while a device that never synced still
+// uploads its key (Planner decision, P4-T2).
+export const LEGACY_SETTING_UPDATED_AT = '1970-01-01T00:00:00.000Z'
 
 export function openDatabase({ factory = globalThis.indexedDB, name = DB_NAME } = {}) {
   return new Promise((resolve, reject) => {
@@ -143,14 +159,134 @@ export async function getSettings(db) {
 }
 
 // Saves the given settings in one transaction; unknown keys are ignored so
-// typos cannot silently create new settings.
-export async function saveSettings(db, partial) {
+// typos cannot silently create new settings. Every write of the API key or
+// the model (including clearing it) also stores its change time in the
+// same transaction, so sync can tell which device changed it last.
+export async function saveSettings(db, partial, { now = new Date() } = {}) {
+  const timestamp = now.toISOString()
   await runInStore(db, SETTINGS_STORE, 'readwrite', (store) => {
     for (const [key, value] of Object.entries(partial)) {
       // An explicit list: `in` on an object would also accept inherited
       // names such as toString or constructor from Object.prototype.
-      if (KNOWN_SETTING_KEYS.includes(key)) store.put(value, key)
+      if (!KNOWN_SETTING_KEYS.includes(key)) continue
+      store.put(value, key)
+      if (Object.hasOwn(TIMESTAMPED_SETTINGS, key)) {
+        store.put(timestamp, TIMESTAMPED_SETTINGS[key])
+      }
     }
+  })
+}
+
+// --- Sync (spec 6, decisions.md Phase 4) ------------------------------------
+
+// Queues reads of everything sync needs inside `tx` (both stores) and calls
+// `done(snapshot)` from the last request's success handler. Requests in one
+// transaction complete in the order they were made, so every earlier
+// result is available by then, and `done` may still write within `tx`.
+// Snapshot shape: see src/lib/sync.js. A setting that was never stored is
+// left out; a stored one without a timestamp gets the legacy epoch.
+function readSnapshotInTransaction(tx, done) {
+  const entriesRequest = tx.objectStore(ENTRIES_STORE).getAll()
+  const settings = tx.objectStore(SETTINGS_STORE)
+  const languagesRequest = settings.get('customLanguages')
+  const fieldRequests = Object.entries(TIMESTAMPED_SETTINGS).map(([key, timeKey]) => ({
+    key,
+    value: settings.get(key),
+    time: settings.get(timeKey),
+  }))
+  const last = fieldRequests.at(-1).time
+  last.onsuccess = () => {
+    try {
+      const snapshotSettings = {}
+      for (const { key, value, time } of fieldRequests) {
+        if (value.result === undefined) continue
+        snapshotSettings[key] = {
+          value: value.result,
+          updatedAt: typeof time.result === 'string' ? time.result : LEGACY_SETTING_UPDATED_AT,
+        }
+      }
+      done({
+        entries: entriesRequest.result ?? [],
+        customLanguages: languagesRequest.result ?? [],
+        settings: snapshotSettings,
+      })
+    } catch {
+      // Abort instead of letting the exception escape the event handler.
+      tx.abort()
+    }
+  }
+}
+
+// Everything that is synced, read in one readonly transaction so entries
+// and settings are consistent with each other. Entries include
+// tombstones; customLanguages is the stored list as-is (sync validates).
+export function readSyncSnapshot(db) {
+  return runTransaction(db, [ENTRIES_STORE, SETTINGS_STORE], 'readonly', (tx) => {
+    let snapshot
+    readSnapshotInTransaction(tx, (result) => {
+      snapshot = result
+    })
+    return () => snapshot
+  })
+}
+
+// Writes a sync result (`merged` from mergeSync) in one readwrite
+// transaction. The network round trip takes time, so local data may have
+// changed since the snapshot was read: `merged` is therefore merged once
+// more with the data stored NOW, using the same rules (sync.js), and only
+// the records where `merged` wins are written. A local change made in the
+// meantime is newer and so is kept; the next sync uploads it.
+// - entries / settings fields: written only when absent locally or when
+//   the merged version wins and differs from the stored one;
+// - customLanguages: the list is rewritten only if the result differs;
+// - hard deletes: only local tombstones the purge removed (still expired
+//   tombstones at `now`); live records are never deleted.
+// Resolves with true when anything was written.
+export function applySyncResult(db, merged, { now = new Date() } = {}) {
+  return runTransaction(db, [ENTRIES_STORE, SETTINGS_STORE], 'readwrite', (tx) => {
+    let changed = false
+    readSnapshotInTransaction(tx, (current) => {
+      const result = mergeSync(current, merged, { now }).merged
+      const entries = tx.objectStore(ENTRIES_STORE)
+      const settings = tx.objectStore(SETTINGS_STORE)
+
+      const stored = new Map()
+      for (const record of current.entries) {
+        if (record && typeof record.id === 'string') stored.set(record.id, record)
+      }
+      const kept = new Set()
+      for (const record of result.entries) {
+        kept.add(record.id)
+        const local = stored.get(record.id)
+        if (local && canonicalJson(local) === canonicalJson(record)) continue
+        entries.put(record)
+        changed = true
+      }
+      for (const [id, local] of stored) {
+        if (kept.has(id) || local.deleted !== true) continue
+        // Absent from the result: either purged or malformed. Only an
+        // expired tombstone is removed; anything else stays untouched.
+        if (purgeExpiredTombstones([local], now).length === 0) {
+          entries.delete(id)
+          changed = true
+        }
+      }
+
+      if (canonicalJson(result.customLanguages) !== canonicalJson(current.customLanguages)) {
+        settings.put(result.customLanguages, 'customLanguages')
+        changed = true
+      }
+
+      for (const [key, timeKey] of Object.entries(TIMESTAMPED_SETTINGS)) {
+        const field = result.settings[key]
+        if (!field) continue
+        if (canonicalJson(field) === canonicalJson(current.settings[key])) continue
+        settings.put(field.value, key)
+        settings.put(field.updatedAt, timeKey)
+        changed = true
+      }
+    })
+    return () => changed
   })
 }
 

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import SettingsPage from './SettingsPage.jsx'
 import { loadSettings, updateSettings } from '../storage/connection.js'
@@ -36,6 +36,10 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Unmount first: a section remounted at the very end of a test (e.g.
+  // ModelSettings for a new key) would otherwise call the reset
+  // loadSettings mock, get undefined and throw (intermittent failure).
+  cleanup()
   vi.mocked(loadSettings).mockReset()
   vi.mocked(updateSettings).mockReset()
   vi.mocked(listModels).mockReset()
@@ -94,6 +98,8 @@ describe('SettingsPage', () => {
     saveKey(input, 'test-key-456')
     await screen.findByText('已儲存')
     await vi.waitFor(() => expect(listModels).toHaveBeenLastCalledWith('test-key-456'))
+    // Let the remounted model section finish loading before the test ends.
+    expect(await screen.findByLabelText('模型')).toBeInTheDocument()
   })
 
   it('hides the model section after the key is deleted, keeping the model', async () => {
@@ -133,7 +139,9 @@ describe('SettingsPage', () => {
       PRO.name,
       FLASH.name,
     ])
-    expect(updateSettings).not.toHaveBeenCalledWith({ geminiModel: 'models/gemini-old-flash' })
+    // Whatever the options (an automatic choice passes { automatic: true }).
+    const savedModels = vi.mocked(updateSettings).mock.calls.map(([partial]) => partial.geminiModel)
+    expect(savedModels).not.toContain('models/gemini-old-flash')
   })
 
   it('shows the language list without an API key, after the API key section', async () => {

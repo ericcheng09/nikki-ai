@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'react-router-dom'
 import HomePage from './HomePage.jsx'
 import {
@@ -30,6 +30,9 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Unmount before resetting the mocks, so no late effect calls a mock
+  // that has already been reset (it would return undefined and throw).
+  cleanup()
   vi.mocked(loadEntries).mockReset()
   vi.mocked(loadSettings).mockReset()
 })
@@ -305,7 +308,8 @@ describe('HomePage calendar selection', () => {
     // still loading.
     await screen.findByRole('table')
     expect(screen.getByText('載入中…')).toBeInTheDocument()
-    expect(loadEntries).toHaveBeenCalled()
+    // The list's load effect may run just after the calendar appears.
+    await waitFor(() => expect(loadEntries).toHaveBeenCalled())
     expect(search()).toBe('?month=2026-10&date=2026-10-07')
   })
 
