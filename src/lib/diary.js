@@ -5,7 +5,9 @@
 // Timestamp convention: every timestamp (createdAt, updatedAt, deletedAt) is
 // produced by Date.prototype.toISOString(), i.e. a fixed-width UTC string
 // ending in 'Z' (e.g. '2026-10-17T03:04:05.678Z'). Keeping one format lets
-// callers (sorting now, sync merge later) compare updatedAt as plain strings.
+// sorting compare createdAt as plain strings. The sync merge (sync.js)
+// compares updatedAt and deletedAt as parsed times instead, so records
+// written in another format still compare correctly.
 
 // Fields a user edit may change. Everything else (id, createdAt, deleted,
 // analysis...) is managed elsewhere and must not be overwritten.
