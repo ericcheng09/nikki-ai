@@ -1,14 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
 import googleAuth from '../lib/googleAuth.js'
+import syncEngine from '../lib/syncEngine.js'
+import useSyncStatus from '../lib/useSyncStatus.js'
+import {
+  NEEDS_LOGIN_MESSAGE,
+  formatSyncTime,
+  syncErrorMessage,
+  syncStateLabel,
+} from '../lib/syncStatus.js'
 
 const SIGN_IN_ERROR = '無法登入 Google，請再試一次。'
 const LOAD_ERROR = '無法讀取設定，請重新整理頁面。'
 
 // 「Google Drive 同步」 section of the settings page (spec 3.6, 6;
-// decisions.md Phase 4). Signs in and out only; sync status, the last sync
-// time and 立即同步 are added with the sync itself. The Google account is
-// never shown (decisions.md), and nothing here logs.
-export default function GoogleSyncSettings({ auth = googleAuth }) {
+// decisions.md Phase 4): sign in and out, the sync status, the last sync
+// time and 立即同步. The Google account is never shown (decisions.md), and
+// nothing here logs.
+export default function GoogleSyncSettings({ auth = googleAuth, engine = syncEngine }) {
   // 'loading' | 'error' | 'signedOut' | 'signedIn' | 'needsLogin'
   const [status, setStatus] = useState('loading')
   const [error, setError] = useState('')
@@ -23,6 +31,14 @@ export default function GoogleSyncSettings({ auth = googleAuth }) {
   // True once 需要重新登入 arrived while the page was open (a background
   // renewal failed): then the message is announced, not just shown.
   const [announceExpiry, setAnnounceExpiry] = useState(false)
+
+  const sync = useSyncStatus(engine)
+  // The status object at mount: an error that is already there is part of
+  // the page; one that arrives later (a new status object) is announced.
+  const mountSyncRef = useRef(sync)
+  const syncErrorIsLive = sync.state === 'error' && sync !== mountSyncRef.current
+  const [syncBusy, setSyncBusy] = useState(false)
+  const syncBusyRef = useRef(false)
 
   useEffect(() => {
     // Load GIS now, so a later click can open its popup synchronously
@@ -94,6 +110,24 @@ export default function GoogleSyncSettings({ auth = googleAuth }) {
     })
   }
 
+  async function handleSyncNow() {
+    if (syncBusyRef.current) return
+    syncBusyRef.current = true
+    setSyncBusy(true)
+    try {
+      // A click, so an expired login may show Google's popup.
+      await engine.syncNow({ interactive: true })
+    } catch {
+      // The status line shows the outcome.
+    } finally {
+      syncBusyRef.current = false
+      setSyncBusy(false)
+    }
+    // 立即同步 is gone when the login expired; keep focus in the section.
+    const now = engine.getStatus()
+    if (now.state === 'error' && now.code === 'needsLogin') setFocusTarget('signIn')
+  }
+
   function handleSignOut() {
     return run(async () => {
       try {
@@ -105,6 +139,11 @@ export default function GoogleSyncSettings({ auth = googleAuth }) {
       }
     })
   }
+
+  // Drive rejected the token twice: the engine marked the login as
+  // expired in storage without a googleAuth status event.
+  const syncNeedsLogin = sync.state === 'error' && sync.code === 'needsLogin'
+  const lastSynced = formatSyncTime(sync.lastSyncedAt)
 
   const signInButton = (label) => (
     // aria-disabled, not disabled, while busy: a disabled button can drop
@@ -153,20 +192,40 @@ export default function GoogleSyncSettings({ auth = googleAuth }) {
         </>
       )}
 
-      {status === 'signedIn' && (
+      {status === 'signedIn' && !syncNeedsLogin && (
         <>
           <p>已登入</p>
-          {/* Sync status, last sync time and 立即同步 go here (P4-T5). */}
-          <div className="actions">{signOutButton}</div>
+          {syncStateLabel(sync.state) && <p>{syncStateLabel(sync.state)}</p>}
+          {lastSynced && <p className="muted">上次同步：{lastSynced}</p>}
+          {sync.state === 'error' && (
+            <p className="error" role={syncErrorIsLive ? 'alert' : undefined}>
+              {syncErrorMessage(sync.code)}
+            </p>
+          )}
+          <div className="actions">
+            {/* aria-disabled, not disabled, while syncing so focus stays
+                on it; clicks are ignored by the syncBusyRef guard. */}
+            <button
+              type="button"
+              className="button"
+              aria-disabled={syncBusy}
+              onClick={handleSyncNow}
+            >
+              立即同步
+            </button>
+            {signOutButton}
+          </div>
         </>
       )}
 
-      {status === 'needsLogin' && (
+      {(status === 'needsLogin' || syncNeedsLogin) && (
         <>
+          <p>{syncStateLabel('error')}</p>
+          {lastSynced && <p className="muted">上次同步：{lastSynced}</p>}
           {/* role="alert" only when it appears while the page is open; on
               page load it is part of the content, like the other states. */}
-          <p className="error" role={announceExpiry ? 'alert' : undefined}>
-            Google 登入已過期，請重新登入。
+          <p className="error" role={announceExpiry || syncErrorIsLive ? 'alert' : undefined}>
+            {NEEDS_LOGIN_MESSAGE}
           </p>
           <div className="actions">
             {signInButton('重新登入')}

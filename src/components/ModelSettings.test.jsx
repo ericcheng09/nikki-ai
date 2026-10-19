@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import ModelSettings from './ModelSettings.jsx'
+import { syncReplacedData } from '../storage/syncSignals.js'
 import { listModels } from '../lib/gemini.js'
 import useModelQuery from '../lib/useModelQuery.js'
 import { loadSettings, updateSettings } from '../storage/connection.js'
@@ -297,5 +298,27 @@ describe('ModelSettings', () => {
     unmount()
     await act(async () => load.resolve({ geminiModel: '' }))
     expect(updateSettings).not.toHaveBeenCalled()
+  })
+})
+
+describe('ModelSettings after a sync', () => {
+  it('selects the model a sync brought from another device', async () => {
+    withModel(PRO.name)
+    render(<Harness />)
+    const select = await screen.findByLabelText('模型')
+    expect(select).toHaveValue(PRO.name)
+    withModel(FLASH.name)
+    await act(async () => syncReplacedData.emit())
+    expect(select).toHaveValue(FLASH.name)
+    expect(updateSettings).not.toHaveBeenCalled()
+  })
+
+  it('keeps the selection when the reload fails', async () => {
+    withModel(PRO.name)
+    render(<Harness />)
+    const select = await screen.findByLabelText('模型')
+    vi.mocked(loadSettings).mockRejectedValue(new Error('idb'))
+    await act(async () => syncReplacedData.emit())
+    expect(select).toHaveValue(PRO.name)
   })
 })

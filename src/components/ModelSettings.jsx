@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { modelChoices, pickDefaultModel, shownModels } from '../lib/models.js'
 import { loadSettings, updateSettings } from '../storage/connection.js'
+import useSyncReplacedData from '../lib/useSyncReplacedData.js'
 
 const SAVE_ERROR = '無法儲存設定，請重新整理頁面後再試一次。'
 
@@ -47,6 +48,17 @@ export default function ModelSettings({ query }) {
       active = false
     }
   }, [rememberModel])
+
+  // A sync brought another device's model choice: select it. Not while a
+  // save of the user's own choice is running (its result wins anyway).
+  useSyncReplacedData(() => {
+    loadSettings()
+      .then((settings) => {
+        if (busyRef.current) return
+        rememberModel(settings.geminiModel ?? '')
+      })
+      .catch(() => {})
+  })
 
   const list = query.status === 'success' ? query.models : null
 

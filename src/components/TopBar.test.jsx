@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { Link, MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import TopBar from './TopBar.jsx'
+import { fakeSyncEngine } from '../testUtils/fakeSyncEngine.js'
 import { markWelcomeSeen } from '../storage/connection.js'
 
 vi.mock('../storage/connection.js', () => ({
@@ -198,5 +199,70 @@ describe('TopBar on the welcome page', () => {
     expect(path()).toBe('/other')
     await act(async () => resolve())
     expect(path()).toBe('/other')
+  })
+})
+
+describe('TopBar sync status', () => {
+  function renderWith(engine, path = '/') {
+    return render(
+      <MemoryRouter initialEntries={[path]}>
+        <TopBar engine={engine} />
+      </MemoryRouter>,
+    )
+  }
+  const cloud = () => screen.queryByRole('link', { name: /^同步狀態：/ })
+
+  it('shows no cloud while signed out', () => {
+    renderWith(fakeSyncEngine({ signedIn: false, state: 'idle' }))
+    expect(cloud()).not.toBeInTheDocument()
+  })
+
+  it('shows no cloud before the first sync starts', () => {
+    renderWith(fakeSyncEngine({ signedIn: true, state: 'idle' }))
+    expect(cloud()).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['syncing', '同步狀態：同步中'],
+    ['synced', '同步狀態：已同步'],
+    ['error', '同步狀態：同步失敗'],
+  ])('%s: a cloud link to settings named %s, left of the gear', (state, name) => {
+    renderWith(fakeSyncEngine({ signedIn: true, state }))
+    const link = screen.getByRole('link', { name })
+    expect(link).toHaveAttribute('href', '/settings')
+    expect(link).toHaveAttribute('title', name)
+    expect(link).toHaveAttribute('data-sync-state', state)
+    expect(link).toHaveClass(`sync-icon-${state}`)
+    // Before the gear in the DOM (and so to its left).
+    expect(link.compareDocumentPosition(gear()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('draws a different mark for each state', () => {
+    const engine = fakeSyncEngine({ signedIn: true, state: 'syncing' })
+    renderWith(engine)
+    const marks = []
+    for (const state of ['syncing', 'synced', 'error']) {
+      act(() => engine.set({ state }))
+      marks.push(cloud().querySelector('svg').innerHTML)
+    }
+    expect(new Set(marks).size).toBe(3)
+  })
+
+  it('follows status changes and disappears on sign-out', () => {
+    const engine = fakeSyncEngine({ signedIn: true, state: 'syncing' })
+    renderWith(engine)
+    act(() => engine.set({ state: 'synced' }))
+    expect(cloud()).toHaveAccessibleName('同步狀態：已同步')
+    act(() => engine.set({ signedIn: false, state: 'idle' }))
+    expect(cloud()).not.toBeInTheDocument()
+  })
+
+  it('is shown on the settings page too, but not on the welcome page', () => {
+    const engine = fakeSyncEngine({ signedIn: true, state: 'synced' })
+    const { unmount } = renderWith(engine, '/settings')
+    expect(cloud()).toBeInTheDocument()
+    unmount()
+    renderWith(engine, '/welcome')
+    expect(cloud()).not.toBeInTheDocument()
   })
 })

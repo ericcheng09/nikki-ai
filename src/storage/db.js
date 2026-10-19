@@ -211,6 +211,59 @@ export async function saveGoogleAuth(db, auth) {
   )
 }
 
+// Clears the stored access token `token` (and, with `needsLogin`, marks
+// that a new sign-in is needed). Used when Drive rejects a token that had
+// not expired yet (e.g. revoked). Checked and written in one transaction:
+// nothing happens unless sync is still enabled AND the stored token is
+// still the rejected one, so neither a sign-out nor a newer token (from
+// another tab or a parallel 重新登入) is ever undone. Resolves with
+// whether the record was changed.
+export function invalidateGoogleToken(db, { token, needsLogin = false } = {}) {
+  return runTransaction(db, SETTINGS_STORE, 'readwrite', (tx) => {
+    const store = tx.objectStore(SETTINGS_STORE)
+    const request = store.get(GOOGLE_AUTH_KEY)
+    let changed = false
+    request.onsuccess = () => {
+      const stored = request.result
+      if (!stored || typeof stored !== 'object' || stored.enabled !== true) return
+      if (typeof token !== 'string' || token === '' || stored.accessToken !== token) return
+      store.put(
+        {
+          ...defaultGoogleAuth(),
+          ...stored,
+          accessToken: '',
+          expiresAt: 0,
+          needsLogin: needsLogin || stored.needsLogin === true,
+        },
+        GOOGLE_AUTH_KEY,
+      )
+      changed = true
+    }
+    return () => changed
+  })
+}
+
+// Local-only sync bookkeeping ({ lastSyncedAt: ISO string | '' }), stored
+// outside KNOWN_SETTING_KEYS like googleAuth, so it is never synced.
+const SYNC_META_KEY = 'syncMeta'
+
+export async function getSyncMeta(db) {
+  const stored = await runInStore(db, SETTINGS_STORE, 'readonly', (store) =>
+    store.get(SYNC_META_KEY),
+  )
+  const lastSyncedAt =
+    stored && typeof stored.lastSyncedAt === 'string' && !Number.isNaN(Date.parse(stored.lastSyncedAt))
+      ? stored.lastSyncedAt
+      : ''
+  return { lastSyncedAt }
+}
+
+export async function saveSyncMeta(db, { lastSyncedAt }) {
+  await runInStore(db, SETTINGS_STORE, 'readwrite', (store) =>
+    store.put({ lastSyncedAt }, SYNC_META_KEY),
+  )
+}
+
 // --- Sync (spec 6, decisions.md Phase 4) ------------------------------------
 
 // Queues reads of everything sync needs inside `tx` (both stores) and calls

@@ -111,6 +111,20 @@ html {
   cursor: default;
 }
 
+/* Sync status in the top bar: the shape tells the state, the colour
+   repeats it. */
+.sync-icon-syncing {
+  color: #2f6fde;
+}
+
+.sync-icon-synced {
+  color: #2e7d32;
+}
+
+.sync-icon-error {
+  color: #c62828;
+}
+
 .toolbar {
   display: flex;
   align-items: center;

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { loadSettings, updateSettings } from '../storage/connection.js'
+import useSyncReplacedData from '../lib/useSyncReplacedData.js'
 
 const AI_STUDIO_URL = 'https://aistudio.google.com/apikey'
 
@@ -108,6 +109,31 @@ export default function ApiKeySettings({ onKeyChange, keyCheck, onRetry }) {
       active = false
     }
   }, [])
+
+  // Mirrors savedKey and value for the sync handler below.
+  const savedKeyRef = useRef('')
+  const valueRef = useRef('')
+  useEffect(() => {
+    savedKeyRef.current = savedKey
+    valueRef.current = value
+  })
+
+  // A sync brought a key from another device (or its deletion): show it
+  // and check it. Text the user is typing (input differs from the saved
+  // key) is left alone; only the saved state is updated.
+  useSyncReplacedData(() => {
+    loadSettings()
+      .then((settings) => {
+        if (busyRef.current) return
+        const key = settings.geminiApiKey ?? ''
+        if (key === savedKeyRef.current) return
+        if (valueRef.current === savedKeyRef.current) setValue(key)
+        setSavedKey(key)
+        setStatus('ready')
+        onKeyChangeRef.current?.(key)
+      })
+      .catch(() => {})
+  })
 
   function clearMessages() {
     setError('')

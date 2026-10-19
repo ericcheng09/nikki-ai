@@ -7,6 +7,11 @@ import {
   settingsIcon,
   installGeminiMock,
   GIS_SCRIPT_URL,
+  GOOGLE_TOKEN,
+  createFakeDrive,
+  gisCalls,
+  installGisStub as installSharedGisStub,
+  setGisMode,
 } from './helpers.js'
 
 // E2E for Phase 4 T3: Google sign-in on the settings page (spec 3.6, 6,
@@ -18,7 +23,7 @@ import {
 
 const CLIENT_ID = '183657778897-o2qr69jd1khjror0fc0c5i7geh5eeltj.apps.googleusercontent.com'
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata'
-const TOKEN = 'ya29.E2E-SECRET-TOKEN-0123456789'
+const TOKEN = GOOGLE_TOKEN
 const INTRO =
   '登入 Google 後，日記、語言清單、API key 與模型會同步到你 Google Drive 中只有這個 App 看得到的資料夾。'
 const SIGN_IN_ERROR = '無法登入 Google，請再試一次。'
@@ -29,68 +34,18 @@ const signInButton = (page) => section(page).getByRole('button', { name: '登入
 const reLoginButton = (page) => section(page).getByRole('button', { name: '重新登入', exact: true })
 const signOutButton = (page) => section(page).getByRole('button', { name: '登出', exact: true })
 
-// GIS stub. window.__gis.mode decides how the next token request ends:
-// 'ok' | 'closed' (popup closed) | 'failed' (popup blocked) | 'denied'
-// (error response) | 'noScope' (Drive permission unticked) | 'silent'
-// (never answers). Calls are recorded in window.__gis.
-function installGisStub(page, { token = TOKEN } = {}) {
-  return page.addInitScript((accessToken) => {
-    const gis = { mode: 'ok', inits: [], requests: [], revoked: [], held: [] }
-    window.__gis = gis
-    window.__gisAnswer = (index, outcome) => {
-      const { config } = gis.held[index]
-      if (outcome === 'ok') {
-        config.callback({ access_token: accessToken, expires_in: 3599, scope: config.scope, token_type: 'Bearer' })
-      } else {
-        config.error_callback?.({ type: 'popup_closed' })
-      }
-    }
-    window.google = {
-      accounts: {
-        oauth2: {
-          initTokenClient(config) {
-            gis.inits.push({ client_id: config.client_id, scope: config.scope })
-            return {
-              requestAccessToken(options = {}) {
-                gis.requests.push({ prompt: options.prompt })
-                const mode = gis.mode
-                if (mode === 'hold') {
-                  // Answered later by window.__gisAnswer(index, outcome).
-                  gis.held.push({ config, prompt: options.prompt })
-                  return
-                }
-                setTimeout(() => {
-                  if (mode === 'ok') {
-                    config.callback({ access_token: accessToken, expires_in: 3599, scope: config.scope, token_type: 'Bearer' })
-                  } else if (mode === 'noScope') {
-                    config.callback({ access_token: accessToken, expires_in: 3599, scope: 'openid', token_type: 'Bearer' })
-                  } else if (mode === 'denied') {
-                    config.callback({ error: 'access_denied' })
-                  } else if (mode === 'closed') {
-                    config.error_callback?.({ type: 'popup_closed' })
-                  } else if (mode === 'failed') {
-                    config.error_callback?.({ type: 'popup_failed_to_open' })
-                  }
-                }, 50)
-              },
-            }
-          },
-          hasGrantedAllScopes(response, ...scopes) {
-            const granted = String(response?.scope ?? '').split(' ')
-            return scopes.every((s) => granted.includes(s))
-          },
-          revoke(token, done) {
-            gis.revoked.push(token)
-            setTimeout(() => done?.({ successful: true }), 10)
-          },
-        },
-      },
-    }
-  }, token)
+// GIS stub from helpers.js. Signing in now starts a Drive sync, so every
+// stubbed page also gets a fake Drive (helpers.js); real Google is never
+// reached.
+async function installGisStub(page, options) {
+  await installSharedGisStub(page, options)
+  const drive = createFakeDrive({ validTokens: [TOKEN] })
+  await drive.attach(page.context())
+  return drive
 }
 
-const gis = (page) => page.evaluate(() => JSON.parse(JSON.stringify(window.__gis, (k, v) => (k === 'config' ? undefined : v))))
-const setMode = (page, mode) => page.evaluate((m) => (window.__gis.mode = m), mode)
+const gis = gisCalls
+const setMode = setGisMode
 
 async function openSettings(page) {
   await settingsIcon(page).click()
@@ -125,6 +80,7 @@ function watch(page) {
     seen.requests.push({
       url: request.url(),
       headers: JSON.stringify(await request.allHeaders()),
+      headerObject: await request.allHeaders(),
       body: request.postData() ?? '',
     })
   })
@@ -217,10 +173,19 @@ test.describe('Google sign-in (settings)', () => {
     // The token never leaks.
     expect(await page.locator('body').innerText()).not.toContain(TOKEN)
     expect(seen.console.join('\n')).not.toContain(TOKEN)
+    // Signing in starts a sync: the only non-local requests go to the
+    // Drive API, carrying the token in the Authorization header only.
+    await expect(section(page).getByText('同步狀態：已同步', { exact: true })).toBeVisible()
     for (const r of seen.requests) {
-      expect(`${r.url} ${r.headers} ${r.body}`, r.url).not.toContain(TOKEN)
+      const { authorization, ...otherHeaders } = r.headerObject
+      expect(`${r.url} ${JSON.stringify(otherHeaders)} ${r.body}`, r.url).not.toContain(TOKEN)
+      if (new URL(r.url).hostname === 'localhost') {
+        expect(authorization, r.url).toBeUndefined()
+      } else {
+        expect(new URL(r.url).origin, r.url).toBe('https://www.googleapis.com')
+        expect(authorization, r.url).toBe(`Bearer ${TOKEN}`)
+      }
     }
-    expect(seen.requests.every((r) => new URL(r.url).hostname === 'localhost')).toBe(true)
     // Local only: it is not part of the normal settings values shown anywhere else.
     expect(await page.evaluate(() => JSON.stringify(localStorage) + JSON.stringify(sessionStorage))).not.toContain(TOKEN)
   })
@@ -315,11 +280,10 @@ test.describe('Google sign-in (settings)', () => {
   })
 
   test('expired login: message, 重新登入 and 登出', async ({ page }) => {
-    await installGisStub(page)
+    // Silent renewal (app-start sync) fails, so the expired state stays.
+    const drive = await installGisStub(page, { mode: 'closed' })
     await startApp(page)
     // State left by a failed silent renewal (getAccessToken -> needsLogin).
-    // P4-T3 has no Drive request yet that would trigger the renewal from
-    // the UI, so the state is seeded.
     await writeStore(page, 'settings', {
       googleAuth: { enabled: true, accessToken: '', expiresAt: 0, needsLogin: true },
     })
@@ -331,9 +295,9 @@ test.describe('Google sign-in (settings)', () => {
     await expect(section(page).getByText('已登入', { exact: true })).toHaveCount(0)
 
     // 重新登入 failing keeps the expired view.
-    await setMode(page, 'closed')
     await reLoginButton(page).click()
-    await expect(section(page).getByRole('alert')).toHaveText(SIGN_IN_ERROR)
+    // The app-start sync's failed renewal may also be announced (alert).
+    await expect(section(page).getByRole('alert').filter({ hasText: SIGN_IN_ERROR })).toHaveCount(1)
     await expect(section(page).getByText(EXPIRED, { exact: true })).toBeVisible()
 
     // 重新登入 succeeding.
@@ -341,10 +305,13 @@ test.describe('Google sign-in (settings)', () => {
     await reLoginButton(page).click()
     await expectSignedIn(page)
     expect(await storedAuth(page)).toMatchObject({ enabled: true, accessToken: TOKEN, needsLogin: false })
+    // The new sign-in syncs right away.
+    await expect(section(page).getByText('同步狀態：已同步', { exact: true })).toBeVisible()
+    expect(drive.files.size).toBe(1)
   })
 
   test('expired login: 登出 signs out', async ({ page }) => {
-    await installGisStub(page)
+    await installGisStub(page, { mode: 'closed' })
     await startApp(page)
     await writeStore(page, 'settings', {
       googleAuth: { enabled: true, accessToken: '', expiresAt: 0, needsLogin: true },
@@ -372,55 +339,45 @@ test.describe('Google sign-in (settings)', () => {
   })
 })
 
-// Silent renewals are started by Drive sync, which has no UI yet (P4-T5).
-// On the dev server the app's own googleAuth module instance can be
-// imported and driven directly; the production build has no such URL, so
-// these run on dev only.
-test.describe('Google sign-in: silent renewal races (dev server only)', () => {
+// Silent renewals are started by Drive sync (P4-T5): an expired stored
+// token makes the app-start sync ask GIS for a new one with prompt 'none'.
+// The stub holds that request, so the tests decide when and how it ends.
+test.describe('Google sign-in: silent renewal races', () => {
   const EXPIRED_AUTH = { enabled: true, accessToken: 'old-expired', expiresAt: 1, needsLogin: false }
+  const cloud = (page) => page.getByRole('banner').locator('[data-sync-state]')
 
+  // Returns the fake Drive; the app-start sync's silent request is held.
   async function setupRenewal(page, auth) {
-    await installGisStub(page)
+    const drive = await installGisStub(page, { mode: 'hold' })
     await startApp(page)
-    const isDev = await page.evaluate(() => Boolean(document.querySelector('script[src*="/@vite/client"]')))
-    test.skip(!isDev, 'needs the dev server module graph')
     await writeStore(page, 'settings', { googleAuth: auth })
-    await page.reload()
-    await openSettings(page)
-    await setMode(page, 'hold')
-  }
-
-  // Starts googleAuth.getAccessToken() (silent) in the page; the result is
-  // stored in window.__renewal.
-  async function startSilentRenewal(page) {
-    await page.evaluate(async () => {
-      const mod = await import('/nikki-ai/src/lib/googleAuth.js')
-      window.__renewal = null
-      mod.default.getAccessToken().then((r) => (window.__renewal = r))
-    })
+    await page.goto('./settings')
+    await expect(page.getByRole('heading', { level: 2, name: '設定' })).toBeVisible()
     await expect.poll(async () => (await gis(page)).requests).toEqual([{ prompt: 'none' }])
+    return drive
   }
 
   test('登出 during an in-flight silent renewal stays signed out', async ({ page }) => {
-    await setupRenewal(page, EXPIRED_AUTH)
+    const drive = await setupRenewal(page, EXPIRED_AUTH)
     await expectSignedIn(page)
-    await startSilentRenewal(page)
 
     await signOutButton(page).click()
     await expectSignedOut(page)
     // The renewal now succeeds at Google, after the sign-out.
     await page.evaluate(() => window.__gisAnswer(0, 'ok'))
-    await expect.poll(() => page.evaluate(() => window.__renewal)).toEqual({ status: 'signedOut' })
+    await page.waitForTimeout(500)
     await expectSignedOut(page)
+    await expect(cloud(page)).toHaveCount(0)
     expect(await storedAuth(page)).toMatchObject({ enabled: false, accessToken: '', needsLogin: false })
+    expect(drive.requests).toEqual([])
     await page.reload()
     await expectSignedOut(page)
+    expect(drive.requests).toEqual([])
   })
 
   test('重新登入 during a silent renewal opens its own interactive request', async ({ page }) => {
-    await setupRenewal(page, { enabled: true, accessToken: '', expiresAt: 0, needsLogin: true })
+    const drive = await setupRenewal(page, { enabled: true, accessToken: '', expiresAt: 0, needsLogin: true })
     await expect(reLoginButton(page)).toBeVisible()
-    await startSilentRenewal(page)
 
     await reLoginButton(page).click()
     // Not joined to the silent request: a second, interactive one.
@@ -430,21 +387,27 @@ test.describe('Google sign-in: silent renewal races (dev server only)', () => {
 
     // The silent one fails afterwards: the new token is kept, no 過期 view.
     await page.evaluate(() => window.__gisAnswer(0, 'fail'))
-    await expect.poll(() => page.evaluate(() => window.__renewal)).toEqual({ status: 'ok', accessToken: TOKEN })
+    await expect(section(page).getByText('同步狀態：已同步', { exact: true })).toBeVisible()
+    await expect(cloud(page)).toHaveAttribute('data-sync-state', 'synced')
     await expectSignedIn(page)
     await expect(section(page).getByText(EXPIRED)).toHaveCount(0)
     expect(await storedAuth(page)).toMatchObject({ enabled: true, accessToken: TOKEN, needsLogin: false })
+    expect(drive.files.size).toBe(1)
+    expect(drive.requests.every((r) => r.token === TOKEN)).toBe(true)
   })
 
   test('a failed silent renewal shows the expiry message live, as an alert', async ({ page }) => {
-    await setupRenewal(page, EXPIRED_AUTH)
+    const drive = await setupRenewal(page, EXPIRED_AUTH)
     await expectSignedIn(page)
-    await startSilentRenewal(page)
     await page.evaluate(() => window.__gisAnswer(0, 'fail'))
-    await expect.poll(() => page.evaluate(() => window.__renewal)).toEqual({ status: 'needsLogin' })
     await expect(section(page).getByRole('alert')).toHaveText(EXPIRED)
+    await expect(section(page).getByText('同步狀態：同步失敗', { exact: true })).toBeVisible()
+    await expect(cloud(page)).toHaveAttribute('data-sync-state', 'error')
     await expect(reLoginButton(page)).toBeVisible()
     await expect(signOutButton(page)).toBeVisible()
+    expect(await storedAuth(page)).toMatchObject({ enabled: true, accessToken: '', needsLogin: true })
+    // The expired token was never sent to Drive.
+    expect(drive.requests).toEqual([])
     // After a reload it is shown, but not as an alert.
     await page.reload()
     await expect(section(page).getByText(EXPIRED, { exact: true })).toBeVisible()

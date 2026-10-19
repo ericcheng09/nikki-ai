@@ -1,5 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import ApiKeySettings from './ApiKeySettings.jsx'
+import { act } from '@testing-library/react'
+import { syncReplacedData } from '../storage/syncSignals.js'
 import { loadSettings, updateSettings } from '../storage/connection.js'
 
 vi.mock('../storage/connection.js', () => ({
@@ -463,5 +465,64 @@ describe('ApiKeySettings', () => {
         expect(screen.queryByRole('button', { name: '重新確認' })).not.toBeInTheDocument()
       })
     })
+  })
+})
+
+describe('ApiKeySettings after a sync', () => {
+  const OTHER = 'synced-key-456'
+
+  it('shows and re-checks a key a sync brought from another device', async () => {
+    withKey(KEY)
+    const onKeyChange = vi.fn()
+    render(<ApiKeySettings onKeyChange={onKeyChange} />)
+    const input = await screen.findByLabelText('API key')
+    expect(onKeyChange).toHaveBeenLastCalledWith(KEY)
+    withKey(OTHER)
+    await act(async () => syncReplacedData.emit())
+    expect(input).toHaveValue(OTHER)
+    expect(onKeyChange).toHaveBeenLastCalledWith(OTHER)
+    expect(updateSettings).not.toHaveBeenCalled()
+  })
+
+  it('shows a deletion synced from another device', async () => {
+    withKey(KEY)
+    const onKeyChange = vi.fn()
+    render(<ApiKeySettings onKeyChange={onKeyChange} />)
+    const input = await screen.findByLabelText('API key')
+    withKey('')
+    await act(async () => syncReplacedData.emit())
+    expect(input).toHaveValue('')
+    expect(screen.getByText('尚未設定 API key')).toBeInTheDocument()
+    expect(onKeyChange).toHaveBeenLastCalledWith('')
+  })
+
+  it('leaves text being typed alone but updates the saved key', async () => {
+    withKey(KEY)
+    const onKeyChange = vi.fn()
+    render(<ApiKeySettings onKeyChange={onKeyChange} />)
+    const input = await screen.findByLabelText('API key')
+    fireEvent.change(input, { target: { value: 'typing' } })
+    withKey(OTHER)
+    await act(async () => syncReplacedData.emit())
+    expect(input).toHaveValue('typing')
+    expect(onKeyChange).toHaveBeenLastCalledWith(OTHER)
+  })
+
+  it('does nothing when the key did not change', async () => {
+    withKey(KEY)
+    const onKeyChange = vi.fn()
+    render(<ApiKeySettings onKeyChange={onKeyChange} />)
+    await screen.findByLabelText('API key')
+    await act(async () => syncReplacedData.emit())
+    expect(onKeyChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the shown key when the reload fails', async () => {
+    withKey(KEY)
+    render(<ApiKeySettings />)
+    const input = await screen.findByLabelText('API key')
+    vi.mocked(loadSettings).mockRejectedValue(new Error('idb'))
+    await act(async () => syncReplacedData.emit())
+    expect(input).toHaveValue(KEY)
   })
 })

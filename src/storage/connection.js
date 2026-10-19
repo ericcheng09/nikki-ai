@@ -18,9 +18,18 @@ import {
   applySyncResult as applySyncResultToDb,
   getGoogleAuth,
   saveGoogleAuth,
+  invalidateGoogleToken as invalidateGoogleTokenInDb,
+  getSyncMeta,
+  saveSyncMeta,
 } from './db.js'
 import { softDeleteEntry } from '../lib/diary.js'
 import { activeLanguageNames } from '../lib/languages.js'
+import {
+  onSyncedDataChange,
+  onSyncReplacedData,
+  syncedDataChange,
+  syncReplacedData,
+} from './syncSignals.js'
 
 // Add/remove resolve with the active names after the call; comparing the
 // count with the one before tells whether the list was actually written.
@@ -47,49 +56,8 @@ export function createConnection(open = openDatabase) {
 
 const connection = createConnection()
 
-// --- Change notifications (decisions.md Phase 4) -----------------------------
-// Two separate signals so sync never triggers itself:
-// - syncedDataChange: the user changed synced data on this device (entry
-//   save/edit/delete, analysis, language add/remove, API key or model).
-//   The sync scheduler listens to this one.
-// - syncReplacedData: a sync wrote data from another device. Pages listen
-//   to this one to reload; it never schedules another sync.
-// Both fire only after the write has been committed.
-
-// A small listener set; one failing listener must not break the write that
-// triggered it or the other listeners, so errors are swallowed on purpose
-// (and never logged: listeners may receive nothing, but stay safe anyway).
-function createSignal() {
-  const listeners = new Set()
-  return {
-    subscribe(listener) {
-      listeners.add(listener)
-      return () => listeners.delete(listener)
-    },
-    emit() {
-      for (const listener of [...listeners]) {
-        try {
-          listener()
-        } catch {
-          // Ignored, see above.
-        }
-      }
-    },
-  }
-}
-
-const syncedDataChange = createSignal()
-const syncReplacedData = createSignal()
-
-// Subscribes to local changes of synced data; returns an unsubscribe.
-export function onSyncedDataChange(listener) {
-  return syncedDataChange.subscribe(listener)
-}
-
-// Subscribes to "a sync wrote new data locally"; returns an unsubscribe.
-export function onSyncReplacedData(listener) {
-  return syncReplacedData.subscribe(listener)
-}
+// Change notifications (decisions.md Phase 4); see syncSignals.js.
+export { onSyncedDataChange, onSyncReplacedData }
 
 // Settings that are synced; welcomeSeen is local only (spec 4.3).
 const SYNCED_SETTING_KEYS = ['geminiApiKey', 'geminiModel', 'customLanguages']
@@ -154,6 +122,11 @@ export async function deleteEntry(entry) {
 // Adds a custom language to the list right away (editor's 「加入」) and
 // resolves with the active names; see addCustomLanguage in db.js.
 // Notifies only when the name became active, i.e. something was written.
+// `before` is read in a separate transaction, so another tab changing the
+// list in between can make this miss (or add) one notification. That is
+// harmless: the other tab's own write notified its own sync, and any
+// missed change is uploaded by the next sync (open, online, manual or the
+// next change).
 export async function saveCustomLanguage(name) {
   const db = await getDb()
   const before = (await getSettings(db)).customLanguages
@@ -164,6 +137,7 @@ export async function saveCustomLanguage(name) {
 
 // Soft-deletes a custom language and resolves with the remaining active
 // names; see removeCustomLanguage in db.js.
+// Same cross-tab caveat as saveCustomLanguage for the notification.
 export async function deleteCustomLanguage(name) {
   const db = await getDb()
   const before = (await getSettings(db)).customLanguages
@@ -214,6 +188,20 @@ export async function loadGoogleAuth() {
 
 export async function storeGoogleAuth(auth) {
   await saveGoogleAuth(await getDb(), auth)
+}
+
+// Drops a stored token Drive rejected; see invalidateGoogleToken in db.js.
+export async function invalidateGoogleToken(options) {
+  return invalidateGoogleTokenInDb(await getDb(), options)
+}
+
+// Local-only time of the last successful sync ('' = never).
+export async function loadLastSyncedAt() {
+  return (await getSyncMeta(await getDb())).lastSyncedAt
+}
+
+export async function storeLastSyncedAt(lastSyncedAt) {
+  await saveSyncMeta(await getDb(), { lastSyncedAt })
 }
 
 // Remembers, for this page load only, that the user pressed 開始使用.

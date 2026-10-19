@@ -19,6 +19,9 @@ import {
   LEGACY_SETTING_UPDATED_AT,
   getGoogleAuth,
   saveGoogleAuth,
+  invalidateGoogleToken,
+  getSyncMeta,
+  saveSyncMeta,
 } from './db.js'
 
 const entry = (overrides = {}) => ({
@@ -953,5 +956,76 @@ describe('google auth record (local only)', () => {
     await saveGoogleAuth(db, signedIn)
     await applySyncResult(db, { entries: [], customLanguages: [], settings: {}, googleAuth: SIGNED_OUT })
     expect(await getGoogleAuth(db)).toEqual(signedIn)
+  })
+})
+
+describe('invalidateGoogleToken', () => {
+  const TOKEN = 'ya29.secret'
+  const signedIn = { enabled: true, accessToken: TOKEN, expiresAt: 1_800_000_000_000, needsLogin: false }
+
+  it('drops the rejected token but stays signed in', async () => {
+    await saveGoogleAuth(db, signedIn)
+    expect(await invalidateGoogleToken(db, { token: TOKEN })).toBe(true)
+    expect(await getGoogleAuth(db)).toEqual({ enabled: true, accessToken: '', expiresAt: 0, needsLogin: false })
+  })
+
+  it('marks needsLogin when asked', async () => {
+    await saveGoogleAuth(db, signedIn)
+    await invalidateGoogleToken(db, { token: TOKEN, needsLogin: true })
+    expect(await getGoogleAuth(db)).toEqual({ enabled: true, accessToken: '', expiresAt: 0, needsLogin: true })
+  })
+
+  it('keeps an existing needsLogin', async () => {
+    await saveGoogleAuth(db, { ...signedIn, needsLogin: true })
+    await invalidateGoogleToken(db, { token: TOKEN })
+    expect((await getGoogleAuth(db)).needsLogin).toBe(true)
+  })
+
+  it('keeps a newer token stored meanwhile (another tab, 重新登入)', async () => {
+    const fresh = { ...signedIn, accessToken: 'ya29.fresh', expiresAt: 1_900_000_000_000 }
+    await saveGoogleAuth(db, fresh)
+    expect(await invalidateGoogleToken(db, { token: TOKEN, needsLogin: true })).toBe(false)
+    expect(await getGoogleAuth(db)).toEqual(fresh)
+  })
+
+  it('does nothing without a token to compare', async () => {
+    await saveGoogleAuth(db, signedIn)
+    expect(await invalidateGoogleToken(db, { needsLogin: true })).toBe(false)
+    expect(await invalidateGoogleToken(db, { token: '' })).toBe(false)
+    await saveGoogleAuth(db, { enabled: true, needsLogin: true })
+    expect(await invalidateGoogleToken(db, { token: '' })).toBe(false)
+    expect((await getGoogleAuth(db)).enabled).toBe(true)
+  })
+
+  it('never signs a signed-out user back in', async () => {
+    expect(await invalidateGoogleToken(db, { token: TOKEN, needsLogin: true })).toBe(false)
+    expect((await getGoogleAuth(db)).enabled).toBe(false)
+    await saveGoogleAuth(db, { enabled: false, accessToken: TOKEN })
+    expect(await invalidateGoogleToken(db, { token: TOKEN, needsLogin: true })).toBe(false)
+    expect((await getGoogleAuth(db)).enabled).toBe(false)
+  })
+})
+
+describe('sync meta (local only)', () => {
+  it('defaults to never synced', async () => {
+    expect(await getSyncMeta(db)).toEqual({ lastSyncedAt: '' })
+  })
+
+  it('saves and reads back the last sync time', async () => {
+    await saveSyncMeta(db, { lastSyncedAt: '2026-10-19T08:00:00.000Z' })
+    expect(await getSyncMeta(db)).toEqual({ lastSyncedAt: '2026-10-19T08:00:00.000Z' })
+  })
+
+  it('ignores an invalid stored value', async () => {
+    await saveSyncMeta(db, { lastSyncedAt: 'garbage' })
+    expect(await getSyncMeta(db)).toEqual({ lastSyncedAt: '' })
+    await saveSyncMeta(db, { lastSyncedAt: 42 })
+    expect(await getSyncMeta(db)).toEqual({ lastSyncedAt: '' })
+  })
+
+  it('is never part of getSettings or the sync snapshot', async () => {
+    await saveSyncMeta(db, { lastSyncedAt: '2026-10-19T08:00:00.000Z' })
+    expect(Object.keys(await getSettings(db))).not.toContain('syncMeta')
+    expect(JSON.stringify(await readSyncSnapshot(db))).not.toContain('2026-10-19T08:00:00.000Z')
   })
 })

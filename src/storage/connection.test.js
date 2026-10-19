@@ -21,7 +21,11 @@ import {
   applySyncResult,
   loadGoogleAuth,
   storeGoogleAuth,
+  invalidateGoogleToken,
+  loadLastSyncedAt,
+  storeLastSyncedAt,
 } from './connection.js'
+import * as signals from './syncSignals.js'
 
 describe('createConnection', () => {
   it('opens the database only once and reuses the same Promise', async () => {
@@ -383,5 +387,35 @@ describe('google auth through the shared connection', () => {
     off()
     await storeGoogleAuth({ enabled: false })
     expect((await loadGoogleAuth()).enabled).toBe(false)
+  })
+})
+
+describe('sync bookkeeping through the shared connection', () => {
+  it('invalidates the token only while signed in, without notifying sync', async () => {
+    const changed = vi.fn()
+    const off = onSyncedDataChange(changed)
+    await storeGoogleAuth({ enabled: true, accessToken: 'ya29.x', expiresAt: 9, needsLogin: false })
+    expect(await invalidateGoogleToken({ token: 'ya29.other', needsLogin: true })).toBe(false)
+    expect(await invalidateGoogleToken({ token: 'ya29.x', needsLogin: true })).toBe(true)
+    expect(await loadGoogleAuth()).toEqual({ enabled: true, accessToken: '', expiresAt: 0, needsLogin: true })
+    await storeGoogleAuth({ enabled: false })
+    expect(await invalidateGoogleToken({ token: 'ya29.x' })).toBe(false)
+    expect((await loadGoogleAuth()).enabled).toBe(false)
+    expect(changed).not.toHaveBeenCalled()
+    off()
+  })
+
+  it('stores the last sync time locally, without notifying sync', async () => {
+    const changed = vi.fn()
+    const off = onSyncedDataChange(changed)
+    await storeLastSyncedAt('2026-10-19T08:00:00.000Z')
+    expect(await loadLastSyncedAt()).toBe('2026-10-19T08:00:00.000Z')
+    expect(changed).not.toHaveBeenCalled()
+    off()
+  })
+
+  it('re-exports the signals from syncSignals.js', () => {
+    expect(onSyncedDataChange).toBe(signals.onSyncedDataChange)
+    expect(onSyncReplacedData).toBe(signals.onSyncReplacedData)
   })
 })
