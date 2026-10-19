@@ -476,7 +476,8 @@ describe('ApiKeySettings after a sync', () => {
     const onKeyChange = vi.fn()
     render(<ApiKeySettings onKeyChange={onKeyChange} />)
     const input = await screen.findByLabelText('API key')
-    expect(onKeyChange).toHaveBeenLastCalledWith(KEY)
+    // Wait for the initial load before a sync arrives.
+    await waitFor(() => expect(onKeyChange).toHaveBeenLastCalledWith(KEY))
     withKey(OTHER)
     await act(async () => syncReplacedData.emit())
     expect(input).toHaveValue(OTHER)
@@ -489,6 +490,7 @@ describe('ApiKeySettings after a sync', () => {
     const onKeyChange = vi.fn()
     render(<ApiKeySettings onKeyChange={onKeyChange} />)
     const input = await screen.findByLabelText('API key')
+    await waitFor(() => expect(onKeyChange).toHaveBeenCalledWith(KEY))
     withKey('')
     await act(async () => syncReplacedData.emit())
     expect(input).toHaveValue('')
@@ -501,6 +503,7 @@ describe('ApiKeySettings after a sync', () => {
     const onKeyChange = vi.fn()
     render(<ApiKeySettings onKeyChange={onKeyChange} />)
     const input = await screen.findByLabelText('API key')
+    await waitFor(() => expect(onKeyChange).toHaveBeenCalledWith(KEY))
     fireEvent.change(input, { target: { value: 'typing' } })
     withKey(OTHER)
     await act(async () => syncReplacedData.emit())
@@ -513,14 +516,40 @@ describe('ApiKeySettings after a sync', () => {
     const onKeyChange = vi.fn()
     render(<ApiKeySettings onKeyChange={onKeyChange} />)
     await screen.findByLabelText('API key')
+    await waitFor(() => expect(onKeyChange).toHaveBeenCalledWith(KEY))
     await act(async () => syncReplacedData.emit())
     expect(onKeyChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('compares against the loaded key even before the next render', async () => {
+    let resolveLoad
+    vi.mocked(loadSettings).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveLoad = resolve
+      }),
+    )
+    withKey(KEY)
+    const onKeyChange = vi.fn()
+    render(<ApiKeySettings onKeyChange={onKeyChange} />)
+    // The initial load finishes and a sync arrives in the same act, before
+    // React re-renders or runs effects; the saved key must already be tracked.
+    await act(async () => {
+      resolveLoad({ welcomeSeen: true, geminiApiKey: KEY })
+      await Promise.resolve()
+      await Promise.resolve()
+      syncReplacedData.emit()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(onKeyChange).toHaveBeenCalledTimes(1)
+    expect(onKeyChange).toHaveBeenCalledWith(KEY)
   })
 
   it('keeps the shown key when the reload fails', async () => {
     withKey(KEY)
     render(<ApiKeySettings />)
     const input = await screen.findByLabelText('API key')
+    await waitFor(() => expect(input).toHaveValue(KEY))
     vi.mocked(loadSettings).mockRejectedValue(new Error('idb'))
     await act(async () => syncReplacedData.emit())
     expect(input).toHaveValue(KEY)
