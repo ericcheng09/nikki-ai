@@ -409,7 +409,8 @@ export function createFakeDrive({ validTokens = [GOOGLE_TOKEN] } = {}) {
     async attach(target) {
       await target.route(
         (url) => url.origin === 'https://www.googleapis.com' && /^\/(upload\/)?drive\/v3\/files/.test(url.pathname),
-        (route) => handle(route),
+        // A context closed while a request was in flight is not an error.
+        (route) => handle(route).catch(() => {}),
       )
     },
   }
