@@ -3,9 +3,9 @@
 讓外語學習者用外語寫日記，並用 AI（Gemini）批改：找出文法錯誤、不通順的句子，推薦更道地的說法。
 
 - 純前端網頁應用，沒有後端服務。
-- 日記存在你的瀏覽器（IndexedDB）裡；只有在你按「AI 批改」時，那篇日記的內容才會送到 Google Gemini。
+- 日記存在你的瀏覽器（IndexedDB）裡；登入 Google 後也會同步到你 Google Drive 中只有這個 App 看得到的資料夾。只有在你按「AI 批改」時，那篇日記的內容才會送到 Google Gemini。
 
-## 目前功能（Phase 3）
+## 目前功能（Phase 4）
 
 - 新增、編輯、刪除日記：選擇日期（預設今天，最晚只能選到今天），用任何外語輸入純文字內容；一天可以寫好幾篇。
 - 日記列表依日期排序，日期新的在上；同一天內，後寫的在上。
@@ -15,10 +15,7 @@
 - 日記語言：自動判斷（預設）、日文、英文，或選「其他」自行輸入；自行輸入過的語言會加入語言清單，之後可直接選擇。
 - AI 批改：在日記頁按「AI 批改」，顯示文法錯誤、不通順的句子、更道地的說法、修改後全文（修改處粗體）與中文翻譯。批改結果會儲存，不會修改日記原文；寬螢幕左右並排，手機上下排列。
 - 設定頁（畫面右上角的齒輪）：輸入、修改、刪除自己的 Gemini API key（附申請說明）；選擇 Gemini 模型（預設自動選最新的 Flash 模型）；刪除語言清單中的語言。
-
-之後的 Phase 預計加入：
-
-- Google Drive 跨裝置同步（Phase 4）。
+- 跨裝置同步：在設定頁登入 Google 後，日記、語言清單、Gemini API key 與模型會自動同步（開啟 App、資料變動後、網路恢復時，或按「立即同步」）。頂部列的雲朵圖示顯示同步狀態。登出只停止同步，不會刪除任何資料。若 Google Drive 上的同步資料無法讀取（例如由較新版本的 App 寫入），同步會暫停，避免覆蓋資料。
 
 ## 部署網址
 
@@ -40,7 +37,8 @@ repo 的 Pages 來源需設定為「GitHub Actions」，這是一次性的設定
 | E2E 測試 | Playwright |
 | 部署 | GitHub Actions + GitHub Pages |
 | AI | Gemini API（Phase 2 起，使用者自備 API key） |
-| 跨裝置同步 | Google Drive（Phase 4 起） |
+| 跨裝置同步 | Google Drive（`drive.appdata`） |
+| 認證 | Google 登入（Google Identity Services） |
 
 ## 本機安裝與執行
 
@@ -54,6 +52,8 @@ npm run preview   # 預覽正式版：http://localhost:4173/nikki-ai/
 ```
 
 > 注意：如果用 `npm run dev -- --host` 讓手機透過區網 IP（例如 `http://192.168.x.x:5173/nikki-ai/`）連線，瀏覽器的安全限制會讓新增日記失敗，請用 `localhost` 開啟。正式網址是 HTTPS，不受影響。
+
+> Google 登入只能在已登記的網址使用（正式網址與 `http://localhost:5173`）；用區域網路 IP 從手機連線時無法登入。目前 OAuth 為「測試」狀態，只有加入測試使用者的 Google 帳號可以登入。
 
 ## 測試
 

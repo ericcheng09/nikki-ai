@@ -35,14 +35,16 @@ async function openGuideFromBar(page) {
 async function expectWelcomeContent(page) {
   await expect(page.getByRole('heading', { level: 2, name: '歡迎使用外語學習日記' })).toBeVisible()
   await expect(page.getByRole('heading', { level: 3, name: '這個 App 可以做什麼' })).toBeVisible()
-  // Five feature items, in this order (user-approved wording; 日曆 added in Phase 3).
+  // Six feature items, in this order (user-approved wording; 日曆 added in
+  // Phase 3, Google Drive sync in Phase 4).
   const features = page.getByRole('region', { name: '這個 App 可以做什麼' }).getByRole('listitem')
   await expect(features).toHaveText([
-    /^寫日記：.*只有在你按「AI 批改」時，那篇日記的內容才會送到 Google Gemini。$/,
+    /^寫日記：.*日記存在你的瀏覽器裡；登入 Google 後也會同步到你的 Google Drive。只有在你按「AI 批改」時，那篇日記的內容才會送到 Google Gemini。$/,
     /^日曆：主畫面的日曆會標出有寫日記的日子，點一下就只看那天的日記；可以切換月份，回顧以前的紀錄。$/,
     /^選擇語言：/,
     /^AI 批改：/,
-    /^使用前準備：.*key 只會存在這個瀏覽器，只用來呼叫 Gemini。$/,
+    /^使用前準備：.*key 存在這個瀏覽器（登入 Google 後也會同步到你的 Google Drive），只用來呼叫 Gemini。$/,
+    '跨裝置同步：在設定頁登入 Google，日記、語言清單、API key 與模型會同步到你 Google Drive 中只有這個 App 看得到的資料夾，手機和電腦都能用。不登入也能使用全部功能。',
   ])
   await expect(page.getByText('以下用一篇日文日記，示範 AI 批改的結果。', { exact: true })).toBeVisible()
   await expect(page.getByText(/即將推出/)).toHaveCount(0)
