@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import DiaryList from './DiaryList.jsx'
@@ -158,13 +159,43 @@ describe('DiaryList (selected day)', () => {
     expect(onShowAll).toHaveBeenCalledTimes(1)
   })
 
-  it('moves focus to the list heading after 顯示全部', () => {
-    renderSelected('2026-10-18')
+  it('moves focus to the heading once the selection is cleared, reading 我的日記', () => {
+    // The parent clears the selection in a later render, like the URL update.
+    function Parent() {
+      const [date, setDate] = useState('2026-10-18')
+      return (
+        <MemoryRouter>
+          <DiaryList status="ready" entries={all} selectedDate={date} onShowAll={() => setDate(null)} />
+        </MemoryRouter>
+      )
+    }
+    // Record the heading text at the moment focus is moved.
+    const focused = []
+    const original = HTMLElement.prototype.focus
+    const tracked = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function focus(...args) {
+      focused.push(this.textContent)
+      return original.apply(this, args)
+    })
+    try {
+      render(<Parent />)
+      fireEvent.click(screen.getByRole('button', { name: '顯示全部' }))
+      const heading = screen.getByRole('heading', { level: 2 })
+      expect(heading).toHaveTextContent('我的日記')
+      expect(heading).toHaveFocus()
+      // Focus happened only after the title had changed.
+      expect(focused).toEqual(['我的日記'])
+      // Focusable from script only, not a tab stop.
+      expect(heading).toHaveAttribute('tabindex', '-1')
+    } finally {
+      tracked.mockRestore()
+    }
+  })
+
+  it('does not move focus while the selection is still set', () => {
+    const onShowAll = renderSelected('2026-10-18')
     fireEvent.click(screen.getByRole('button', { name: '顯示全部' }))
-    const heading = screen.getByRole('heading', { level: 2 })
-    expect(heading).toHaveFocus()
-    // Focusable from script only, not a tab stop.
-    expect(heading).toHaveAttribute('tabindex', '-1')
+    expect(onShowAll).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('heading', { level: 2 })).not.toHaveFocus()
   })
 
   it('has no 顯示全部 and the normal title without a selection', () => {

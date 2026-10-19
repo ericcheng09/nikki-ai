@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { formatDayTitle } from '../lib/calendar.js'
 import { filterActiveEntries, sortEntries } from '../lib/diary.js'
@@ -28,12 +28,24 @@ export default function DiaryList({ status, entries, selectedDate = null, onShow
   }, [status, entries, selectedDate])
   const dayTitle = selectedDate ? formatDayTitle(selectedDate) : ''
   const headingRef = useRef(null)
+  // Set by 顯示全部 until the parent has cleared the selection.
+  const focusAfterClearRef = useRef(false)
 
-  // 顯示全部 removes itself; move focus to the list heading (now 我的日記)
-  // so keyboard and screen reader users are not dropped to the page start.
+  // 顯示全部 removes itself; focus moves to the list heading so keyboard and
+  // screen reader users are not dropped to the page start. The parent clears
+  // the selection through the URL, i.e. in a later render, so the focus is
+  // moved only once selectedDate is null and the heading already reads
+  // 我的日記 (focusing earlier would announce the old day title).
+  useEffect(() => {
+    if (!focusAfterClearRef.current) return
+    // Any selection change ends the request; only a cleared one focuses.
+    focusAfterClearRef.current = false
+    if (!selectedDate) headingRef.current?.focus()
+  }, [selectedDate])
+
   function showAll() {
+    focusAfterClearRef.current = true
     onShowAll?.()
-    headingRef.current?.focus()
   }
 
   return (
