@@ -19,6 +19,8 @@ import {
   onSyncReplacedData,
   readSyncSnapshot,
   applySyncResult,
+  loadGoogleAuth,
+  storeGoogleAuth,
 } from './connection.js'
 
 describe('createConnection', () => {
@@ -367,5 +369,19 @@ describe('sync change notifications', () => {
     await expect(applySyncResult(await readSyncSnapshot())).resolves.toBe(false)
     expect(replaced).not.toHaveBeenCalled()
     expect(changed).not.toHaveBeenCalled()
+  })
+})
+
+describe('google auth through the shared connection', () => {
+  it('stores the state without notifying sync', async () => {
+    const changed = vi.fn()
+    const off = onSyncedDataChange(changed)
+    const auth = { enabled: true, accessToken: 'ya29.conn', expiresAt: 123, needsLogin: false }
+    await storeGoogleAuth(auth)
+    expect(await loadGoogleAuth()).toEqual(auth)
+    expect(changed).not.toHaveBeenCalled()
+    off()
+    await storeGoogleAuth({ enabled: false })
+    expect((await loadGoogleAuth()).enabled).toBe(false)
   })
 })

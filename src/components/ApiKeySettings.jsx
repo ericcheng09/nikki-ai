@@ -292,7 +292,7 @@ export default function ApiKeySettings({ onKeyChange, keyCheck, onRetry }) {
           <li>複製產生的 key，貼到上方欄位後按「儲存」。</li>
         </ol>
         <p className="muted">
-          API key 只會存在這個瀏覽器，只用來呼叫 Gemini，不會傳送到其他地方。
+          API key 存在這個瀏覽器；登入 Google 後，也會同步到你 Google Drive 中只有這個 App 看得到的資料夾。只用來呼叫 Gemini，不會傳送到其他地方。
         </p>
       </div>
     </section>

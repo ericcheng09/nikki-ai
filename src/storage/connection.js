@@ -16,6 +16,8 @@ import {
   readSyncSnapshot as readSnapshotFromDb,
   LEGACY_SETTING_UPDATED_AT,
   applySyncResult as applySyncResultToDb,
+  getGoogleAuth,
+  saveGoogleAuth,
 } from './db.js'
 import { softDeleteEntry } from '../lib/diary.js'
 import { activeLanguageNames } from '../lib/languages.js'
@@ -202,6 +204,16 @@ export async function applySyncResult(merged) {
   const changed = await applySyncResultToDb(await getDb(), merged)
   if (changed) syncReplacedData.emit()
   return changed
+}
+
+// Local-only Google sign-in state (token, flag); see getGoogleAuth in
+// db.js. Never synced and never part of loadSettings().
+export async function loadGoogleAuth() {
+  return getGoogleAuth(await getDb())
+}
+
+export async function storeGoogleAuth(auth) {
+  await saveGoogleAuth(await getDb(), auth)
 }
 
 // Remembers, for this page load only, that the user pressed 開始使用.

@@ -10,6 +10,13 @@ vi.mock('../storage/connection.js', () => ({
   deleteCustomLanguage: vi.fn(),
 }))
 vi.mock('../lib/gemini.js', () => ({ listModels: vi.fn() }))
+// The Google section has its own tests (GoogleSyncSettings.test.jsx).
+vi.mock('../lib/googleAuth.js', () => ({
+  default: {
+    getStatus: vi.fn(async () => 'signedOut'),
+    onStatusChange: vi.fn(() => () => {}),
+  },
+}))
 
 const FLASH = { name: 'models/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' }
 const PRO = { name: 'models/gemini-2.5-pro', displayName: 'Gemini 2.5 Pro' }
@@ -148,7 +155,7 @@ describe('SettingsPage', () => {
     renderSettings()
     await keyInput()
     const headings = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)
-    expect(headings).toEqual(['Gemini API key', '語言清單'])
+    expect(headings).toEqual(['Gemini API key', '語言清單', 'Google Drive 同步'])
   })
 
   it('places the language list after the model section when a key is saved', async () => {
@@ -160,7 +167,7 @@ describe('SettingsPage', () => {
     renderSettings()
     await screen.findByLabelText('模型')
     const headings = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)
-    expect(headings).toEqual(['Gemini API key', 'Gemini 模型', '語言清單'])
+    expect(headings).toEqual(['Gemini API key', 'Gemini 模型', '語言清單', 'Google Drive 同步'])
   })
 
   it('keeps the language list when the API key is deleted', async () => {

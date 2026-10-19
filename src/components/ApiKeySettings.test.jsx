@@ -250,7 +250,9 @@ describe('ApiKeySettings', () => {
     expect(screen.getByText('用 Google 帳號登入，建立一個新的 API key。')).toBeInTheDocument()
     expect(screen.getByText(/複製產生的 key/)).toBeInTheDocument()
     expect(
-      screen.getByText('API key 只會存在這個瀏覽器，只用來呼叫 Gemini，不會傳送到其他地方。'),
+      screen.getByText(
+        'API key 存在這個瀏覽器；登入 Google 後，也會同步到你 Google Drive 中只有這個 App 看得到的資料夾。只用來呼叫 Gemini，不會傳送到其他地方。',
+      ),
     ).toBeInTheDocument()
   })
 

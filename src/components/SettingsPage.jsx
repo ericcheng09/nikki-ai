@@ -2,6 +2,7 @@ import { useState } from 'react'
 import ApiKeySettings from './ApiKeySettings.jsx'
 import ModelSettings from './ModelSettings.jsx'
 import LanguageListSettings from './LanguageListSettings.jsx'
+import GoogleSyncSettings from './GoogleSyncSettings.jsx'
 import useModelQuery from '../lib/useModelQuery.js'
 
 // Settings page (spec 3.6). Not guarded by welcomeSeen, so opening
@@ -45,6 +46,7 @@ export default function SettingsPage() {
       )}
       {/* Independent of the API key. */}
       <LanguageListSettings />
+      <GoogleSyncSettings />
     </section>
   )
 }

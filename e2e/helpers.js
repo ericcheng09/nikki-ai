@@ -18,7 +18,19 @@ async function guardContext(context, blocked) {
       return route.abort('blockedbyclient')
     },
   )
+  // The settings page preloads the Google Identity Services script. By
+  // default it is answered locally with an empty script (never reaching
+  // Google), so GIS is simply unavailable. Specs that need a working GIS
+  // define window.google.accounts.oauth2 with page.addInitScript; the app
+  // then adds no script at all. Registered after the guard, so it is
+  // matched first (Playwright tries the most recent route first).
+  await context.route(GIS_SCRIPT_URL, (route) =>
+    route.fulfill({ status: 200, contentType: 'text/javascript', body: '' }),
+  )
 }
+
+// Google Identity Services script URL (src/lib/googleAuth.js).
+export const GIS_SCRIPT_URL = 'https://accounts.google.com/gsi/client'
 
 export const test = base.extend({
   // Unmocked external requests from all guarded contexts of the test.

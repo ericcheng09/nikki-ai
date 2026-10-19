@@ -177,6 +177,40 @@ export async function saveSettings(db, partial, { now = new Date() } = {}) {
   })
 }
 
+// --- Google sign-in state (decisions.md Phase 4) ----------------------------
+// Local only: one record outside KNOWN_SETTING_KEYS, so getSettings,
+// saveSettings and the sync snapshot never see it. It holds the OAuth
+// access token, which must never be synced, logged or shown.
+const GOOGLE_AUTH_KEY = 'googleAuth'
+
+function defaultGoogleAuth() {
+  return { enabled: false, accessToken: '', expiresAt: 0, needsLogin: false }
+}
+
+// { enabled, accessToken, expiresAt (ms since epoch), needsLogin }; fields
+// of the wrong type fall back to the signed-out defaults.
+export async function getGoogleAuth(db) {
+  const stored = await runInStore(db, SETTINGS_STORE, 'readonly', (store) =>
+    store.get(GOOGLE_AUTH_KEY),
+  )
+  const auth = defaultGoogleAuth()
+  if (stored && typeof stored === 'object') {
+    if (typeof stored.enabled === 'boolean') auth.enabled = stored.enabled
+    if (typeof stored.accessToken === 'string') auth.accessToken = stored.accessToken
+    if (Number.isFinite(stored.expiresAt)) auth.expiresAt = stored.expiresAt
+    if (typeof stored.needsLogin === 'boolean') auth.needsLogin = stored.needsLogin
+  }
+  return auth
+}
+
+// Replaces the whole record; omitted fields are reset to the defaults.
+export async function saveGoogleAuth(db, auth) {
+  const record = { ...defaultGoogleAuth(), ...auth }
+  await runInStore(db, SETTINGS_STORE, 'readwrite', (store) =>
+    store.put(record, GOOGLE_AUTH_KEY),
+  )
+}
+
 // --- Sync (spec 6, decisions.md Phase 4) ------------------------------------
 
 // Queues reads of everything sync needs inside `tx` (both stores) and calls

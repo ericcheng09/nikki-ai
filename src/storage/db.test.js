@@ -17,6 +17,8 @@ import {
   readSyncSnapshot,
   applySyncResult,
   LEGACY_SETTING_UPDATED_AT,
+  getGoogleAuth,
+  saveGoogleAuth,
 } from './db.js'
 
 const entry = (overrides = {}) => ({
@@ -907,5 +909,49 @@ describe('sync storage', () => {
       await apply(merged({ settings: { welcomeSeen: { value: 'true', updatedAt: T3 } } }))
       expect((await getSettings(db)).welcomeSeen).toBe(false)
     })
+  })
+})
+
+describe('google auth record (local only)', () => {
+  const SIGNED_OUT = { enabled: false, accessToken: '', expiresAt: 0, needsLogin: false }
+  const signedIn = { enabled: true, accessToken: 'ya29.secret', expiresAt: 1_800_000_000_000, needsLogin: false }
+
+  it('defaults to signed out', async () => {
+    expect(await getGoogleAuth(db)).toEqual(SIGNED_OUT)
+  })
+
+  it('saves and reads back the token and flag', async () => {
+    await saveGoogleAuth(db, signedIn)
+    expect(await getGoogleAuth(db)).toEqual(signedIn)
+  })
+
+  it('resets omitted fields and ignores wrong types', async () => {
+    await saveGoogleAuth(db, signedIn)
+    await saveGoogleAuth(db, { enabled: true, needsLogin: true })
+    expect(await getGoogleAuth(db)).toEqual({ ...SIGNED_OUT, enabled: true, needsLogin: true })
+    await saveGoogleAuth(db, { enabled: 'yes', accessToken: 5, expiresAt: 'soon', needsLogin: null })
+    expect(await getGoogleAuth(db)).toEqual(SIGNED_OUT)
+  })
+
+  it('is never part of getSettings or the sync snapshot', async () => {
+    await saveGoogleAuth(db, signedIn)
+    await saveSettings(db, { geminiApiKey: 'k' })
+    expect(Object.keys(await getSettings(db)).sort()).toEqual(
+      ['customLanguages', 'geminiApiKey', 'geminiModel', 'welcomeSeen'],
+    )
+    const snapshot = await readSyncSnapshot(db)
+    expect(JSON.stringify(snapshot)).not.toContain('ya29.secret')
+    expect(Object.keys(snapshot.settings)).toEqual(['geminiApiKey'])
+  })
+
+  it('cannot be written through saveSettings', async () => {
+    await saveSettings(db, { googleAuth: signedIn })
+    expect(await getGoogleAuth(db)).toEqual(SIGNED_OUT)
+  })
+
+  it('is left alone by applySyncResult', async () => {
+    await saveGoogleAuth(db, signedIn)
+    await applySyncResult(db, { entries: [], customLanguages: [], settings: {}, googleAuth: SIGNED_OUT })
+    expect(await getGoogleAuth(db)).toEqual(signedIn)
   })
 })

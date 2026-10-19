@@ -14,6 +14,14 @@ vi.mock('./storage/connection.js', () => ({
   saveEntryAddingLanguage: vi.fn(),
   deleteCustomLanguage: vi.fn(),
   deleteEntry: vi.fn(),
+  // Signed out: the settings page's Google section never loads GIS.
+  loadGoogleAuth: vi.fn(async () => ({
+    enabled: false,
+    accessToken: '',
+    expiresAt: 0,
+    needsLogin: false,
+  })),
+  storeGoogleAuth: vi.fn(),
 }))
 
 function renderAt(path) {
