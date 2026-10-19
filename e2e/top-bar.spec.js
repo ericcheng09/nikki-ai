@@ -118,7 +118,7 @@ test.describe('top bar', () => {
     const inner = page.locator('.app-bar-inner')
 
     for (const [path, width] of [
-      ['./', 720],
+      ['./', 1120],
       ['./settings', 720],
       ['./entry/new', 720],
       [`./entry/${ENTRY_ID}`, 1120],

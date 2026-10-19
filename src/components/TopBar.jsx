@@ -1,5 +1,6 @@
 import { Link, matchPath, useLocation, useNavigate } from 'react-router-dom'
 import WelcomeStartButton from './WelcomeStartButton.jsx'
+import { canGoBackInApp } from '../lib/navigation.js'
 
 // Fixed bar at the top of every page (decisions.md 畫面, spec 3.5):
 // back button (some pages only) | app name | 設定 + 使用說明, or only
@@ -33,26 +34,22 @@ function HelpIcon() {
   )
 }
 
-// Where 「←」 goes on the current route, or null when there is no back
-// button: entry pages go home; settings goes back to the in-app page it
-// was opened from, or home when opened directly.
-function backTarget(pathname) {
-  if (matchPath('/settings', pathname)) return 'history'
-  if (matchPath('/entry/:id', pathname)) return 'home' // includes /entry/new
-  return null
+// Whether 「←」 is shown on the current route. Settings and entry pages
+// (including /entry/new) go back to the in-app page they were opened
+// from, or home when there is none (decisions.md 畫面, Phase 3 change).
+function hasBackButton(pathname) {
+  return Boolean(matchPath('/settings', pathname) || matchPath('/entry/:id', pathname))
 }
 
 export default function TopBar() {
   const location = useLocation()
   const navigate = useNavigate()
-  const back = backTarget(location.pathname)
+  const back = hasBackButton(location.pathname)
   const isWelcome = Boolean(matchPath('/welcome', location.pathname))
   const isSettings = Boolean(matchPath('/settings', location.pathname))
 
   function handleBack() {
-    // key 'default' marks the first location of this app session (opened
-    // directly or reloaded): there is no in-app page to go back to.
-    if (back === 'history' && location.key !== 'default') {
+    if (canGoBackInApp(location)) {
       navigate(-1)
     } else {
       navigate('/')

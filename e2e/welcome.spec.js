@@ -35,10 +35,11 @@ async function openGuideFromBar(page) {
 async function expectWelcomeContent(page) {
   await expect(page.getByRole('heading', { level: 2, name: '歡迎使用外語學習日記' })).toBeVisible()
   await expect(page.getByRole('heading', { level: 3, name: '這個 App 可以做什麼' })).toBeVisible()
-  // Four feature items, in this order (user-approved wording).
+  // Five feature items, in this order (user-approved wording; 日曆 added in Phase 3).
   const features = page.getByRole('region', { name: '這個 App 可以做什麼' }).getByRole('listitem')
   await expect(features).toHaveText([
     /^寫日記：.*只有在你按「AI 批改」時，那篇日記的內容才會送到 Google Gemini。$/,
+    /^日曆：主畫面的日曆會標出有寫日記的日子，點一下就只看那天的日記；可以切換月份，回顧以前的紀錄。$/,
     /^選擇語言：/,
     /^AI 批改：/,
     /^使用前準備：.*key 只會存在這個瀏覽器，只用來呼叫 Gemini。$/,

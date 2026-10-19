@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import AiReviewPanel from './AiReviewPanel.jsx'
 import LanguageField from './LanguageField.jsx'
 import {
@@ -10,6 +10,7 @@ import {
 } from '../lib/diary.js'
 import { entryLanguage, hasUnsavedChanges } from '../lib/editorForm.js'
 import useAutoGrow from '../lib/useAutoGrow.js'
+import { canGoBackInApp } from '../lib/navigation.js'
 import {
   OTHER_OPTION_VALUE,
   addLanguage,
@@ -53,6 +54,7 @@ export default function DiaryEditor({ entry }) {
   // both see busy === false. The ref blocks the second one immediately.
   const busyRef = useRef(false)
   const navigate = useNavigate()
+  const location = useLocation()
   // The 內容 box grows with its text (at least 12 rows, no inner scroll).
   const contentRef = useRef(null)
   useAutoGrow(contentRef, content)
@@ -249,7 +251,15 @@ export default function DiaryEditor({ entry }) {
     clearMessages()
     try {
       await deleteEntry(saved)
-      navigate('/')
+      // Leave the way 「←」 does: back to the previous in-app page (e.g. the
+      // home page with its calendar month/day in the URL; the day is dropped
+      // there if it has no entries left), so Back does not land on the
+      // deleted entry. Without an in-app page, replace this one with home.
+      if (canGoBackInApp(location)) {
+        navigate(-1)
+      } else {
+        navigate('/', { replace: true })
+      }
     } catch {
       setError('無法刪除日記，請重新整理頁面後再試一次。')
       unlock()

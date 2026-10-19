@@ -102,7 +102,7 @@ test.describe('open, edit and delete a diary entry', () => {
     await page.goBack()
     await createEntry(page, 'Entry B', lastWeek)
     await page.goBack()
-    expect(await listedPreviews(page)).toEqual(['Entry A', 'Entry B'])
+    await expect.poll(() => listedPreviews(page)).toEqual(['Entry A', 'Entry B'])
 
     // Open B (last week) and move it to today with new content.
     await entryItems(page).filter({ hasText: 'Entry B' }).getByRole('link').click()
@@ -134,7 +134,7 @@ test.describe('open, edit and delete a diary entry', () => {
     // List reflects new content and new date order; still two entries.
     await openHome(page)
     await expect(entryItems(page)).toHaveCount(2)
-    expect(await listedPreviews(page)).toEqual(['Entry B edited 編集しました', 'Entry A'])
+    await expect.poll(() => listedPreviews(page)).toEqual(['Entry B edited 編集しました', 'Entry A'])
     await expect(entryItems(page).locator('time')).toHaveText([today, yesterday])
 
     expect(consoleMessages.filter((m) => m.includes('Entry B'))).toEqual([])
@@ -158,7 +158,7 @@ test.describe('open, edit and delete a diary entry', () => {
     await page.reload()
     await expect(page.getByLabel('內容')).toHaveValue('Original text')
     await openHome(page)
-    expect(await listedPreviews(page)).toEqual(['Original text'])
+    await expect.poll(() => listedPreviews(page)).toEqual(['Original text'])
   })
 
   test('cancelling the delete confirmation keeps the entry', async ({ page }) => {
@@ -181,7 +181,7 @@ test.describe('open, edit and delete a diary entry', () => {
     expect(stored.content).toBe('Keep me')
 
     await openHome(page)
-    expect(await listedPreviews(page)).toEqual(['Keep me'])
+    await expect.poll(() => listedPreviews(page)).toEqual(['Keep me'])
   })
 
   test('confirming delete soft-deletes, returns home and hides the entry for good', async ({
@@ -207,7 +207,7 @@ test.describe('open, edit and delete a diary entry', () => {
 
     await expect(page).toHaveURL(HOME_URL)
     await expect(entryItems(page)).toHaveCount(1)
-    expect(await listedPreviews(page)).toEqual(['Other entry stays'])
+    await expect.poll(() => listedPreviews(page)).toEqual(['Other entry stays'])
 
     // IndexedDB keeps only the 4-field tombstone; content is gone.
     const all = await readStoredEntries(page)
@@ -222,7 +222,7 @@ test.describe('open, edit and delete a diary entry', () => {
     // Still hidden after a reload.
     await page.reload()
     await expect(entryItems(page)).toHaveCount(1)
-    expect(await listedPreviews(page)).toEqual(['Other entry stays'])
+    await expect.poll(() => listedPreviews(page)).toEqual(['Other entry stays'])
 
     // Opening the deleted entry directly shows "not found".
     await page.goto(`./entry/${id}`)

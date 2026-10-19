@@ -175,7 +175,7 @@ test.describe('entry page layout', () => {
   test('other pages keep the 720px single column at 1280px', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 })
     await seedEntry(page)
-    for (const path of ['./', './entry/new', './settings', './welcome']) {
+    for (const path of ['./entry/new', './settings', './welcome']) {
       await page.goto(path)
       await expect(page.getByRole('heading', { level: 2 }).first()).toBeVisible()
       const container = await app(page).boundingBox()

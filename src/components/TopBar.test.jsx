@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { Link, MemoryRouter, useLocation } from 'react-router-dom'
+import { Link, MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import TopBar from './TopBar.jsx'
 import { markWelcomeSeen } from '../storage/connection.js'
 
@@ -10,10 +10,16 @@ vi.mock('../storage/connection.js', () => ({
 // Shows the current path, plus an in-app link for leaving a page.
 function Probe() {
   const location = useLocation()
+  const navigate = useNavigate()
   return (
     <>
       <p data-testid="path">{location.pathname}</p>
+      <p data-testid="search">{location.search}</p>
       <Link to="/other">離開</Link>
+      {/* Mimics DiaryEditor after creating an entry. */}
+      <button type="button" onClick={() => navigate('/entry/created', { replace: true })}>
+        儲存後
+      </button>
     </>
   )
 }
@@ -28,6 +34,7 @@ function renderAt(entries, initialIndex) {
 }
 
 const path = () => screen.getByTestId('path').textContent
+const search = () => screen.getByTestId('search').textContent
 const backButton = () => screen.queryByRole('button', { name: '返回' })
 const gear = () => screen.queryByRole('link', { name: '設定' })
 const help = () => screen.queryByRole('link', { name: '使用說明' })
@@ -60,13 +67,56 @@ describe('TopBar', () => {
     expect(backButton()).toHaveAttribute('title', '返回')
   })
 
-  it.each([['/entry/new'], ['/entry/abc']])('goes home from %s via 返回', (start) => {
-    renderAt(['/settings', start], 1)
+  it.each([['/entry/new'], ['/entry/abc']])('goes back to the previous in-app page from %s', (start) => {
+    renderAt(['/?month=2026-10&date=2026-10-18', start], 1)
     expect(gear()).toBeInTheDocument()
     expect(help()).toBeInTheDocument()
     fireEvent.click(backButton())
-    // Home, not the previous history entry (/settings).
+    // The previous page, query included (the calendar selection survives).
     expect(path()).toBe('/')
+    expect(search()).toBe('?month=2026-10&date=2026-10-18')
+  })
+
+  it.each([['/entry/new'], ['/entry/abc']])('goes home from a directly opened %s', (start) => {
+    renderAt([start])
+    fireEvent.click(backButton())
+    expect(path()).toBe('/')
+    expect(search()).toBe('')
+  })
+
+  it('goes back past a replaced entry page to the page before 新增日記', () => {
+    renderAt(['/?date=2026-10-18', '/entry/new'], 1)
+    // The editor replaces /entry/new with the created entry.
+    fireEvent.click(screen.getByRole('button', { name: '儲存後' }))
+    expect(path()).toBe('/entry/created')
+    fireEvent.click(backButton())
+    expect(path()).toBe('/')
+    expect(search()).toBe('?date=2026-10-18')
+  })
+
+  it('goes home when the first page of the session was replaced (history index 0)', () => {
+    // BrowserRouter keeps the entry index in history.state; a replace from
+    // the first page keeps idx 0 although the key changes.
+    window.history.replaceState({ idx: 0 }, '')
+    try {
+      renderAt(['/entry/new'])
+      fireEvent.click(screen.getByRole('button', { name: '儲存後' }))
+      fireEvent.click(backButton())
+      expect(path()).toBe('/')
+    } finally {
+      window.history.replaceState(null, '')
+    }
+  })
+
+  it('uses history when history.state.idx is above 0', () => {
+    window.history.replaceState({ idx: 1 }, '')
+    try {
+      renderAt(['/?month=2026-09', '/entry/abc'], 1)
+      fireEvent.click(backButton())
+      expect(search()).toBe('?month=2026-09')
+    } finally {
+      window.history.replaceState(null, '')
+    }
   })
 
   it('hides 設定 on the settings page but keeps 使用說明', () => {
