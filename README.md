@@ -40,6 +40,59 @@ repo 的 Pages 來源需設定為「GitHub Actions」，這是一次性的設定
 | 跨裝置同步 | Google Drive（`drive.appdata`） |
 | 認證 | Google 登入（Google Identity Services） |
 
+## 系統架構
+
+全部在瀏覽器內執行，沒有自己的後端伺服器。
+
+```mermaid
+flowchart LR
+  subgraph Browser["使用者的瀏覽器"]
+    UI["React App<br/>（GitHub Pages 提供的靜態檔）"]
+    DB[("IndexedDB<br/>日記、語言清單、設定")]
+    UI <--> DB
+  end
+  UI -- "按下「AI 批改」時<br/>送出該篇日記（API key 放在 header）" --> Gemini["Google Gemini API"]
+  UI -- "登入後同步<br/>nikki-ai-sync.json（App 專屬資料夾）" --> Drive["Google Drive<br/>appDataFolder"]
+  UI -- "登入／續期授權" --> GIS["Google Identity Services"]
+```
+
+- **本機優先**：不登入也能使用全部功能，資料存在 IndexedDB。
+- **AI 批改**：使用者自備 Gemini API key，只有按下「AI 批改」時才送出那篇日記。
+- **同步**：登入 Google 後，日記、語言清單、API key 與模型存成一個 JSON 檔，放在 Drive 中只有這個 App 看得到的資料夾。
+
+## 開發流程
+
+以 AI 代理分工模擬小型開發團隊，由開發者本人擔任決策者。流程定義在 [docs/WORKFLOW.md](docs/WORKFLOW.md)。
+
+| 角色 | 工作 |
+|---|---|
+| 開發者本人 | 確認每個 phase 的計畫、所有規格決策、閱讀 review 標出的重點、決定是否合併到 `main` |
+| Planner | 拆解任務與完成條件、分派、轉交問題；規格不清時停下來詢問 |
+| Developer | 實作與單元測試、commit |
+| Tester | E2E 與驗收測試 |
+| Code Reviewer | 每個任務 review、每個 phase 寫 summary |
+
+- 每個 phase 從 `main` 開 `dev/phase-<編號>` 分支；一個任務一個 commit，review 修正併入原 commit；phase 結束以一般 merge 合併。
+- 核心邏輯（排序、軟刪除、JSON 驗證、日曆標示、同步合併與清除）以 TDD 撰寫。
+- E2E 中 Gemini、Google 登入與 Drive 一律模擬；任何未模擬的外部請求會讓測試失敗。
+- `main` 更新後，GitHub Actions 執行單元測試、build 與對正式 build 的 E2E，全部通過才部署。
+- 規格沒寫到的細節記錄在 [docs/decisions.md](docs/decisions.md)，經開發者本人確認。
+
+## 關鍵設計決定
+
+| 決定 | 理由 |
+|---|---|
+| 純前端，不建後端 | 免費、不用管伺服器與帳號；日記留在使用者自己手上 |
+| 使用者自備 Gemini API key | 完全免費、不需要中間層；key 只存在使用者自己的瀏覽器與 Drive |
+| 用 Google Drive 的 App 專屬資料夾同步 | 免費、不需要後端；`drive.appdata` 只看得到 App 自己的資料，不碰使用者其他檔案 |
+| 從 Phase 1 就採軟刪除 | 多裝置同步時，直接刪除的資料會被另一台「同步回來」；保留刪除記號才能正確同步 |
+| 範例日記改成首次使用說明頁，不存成日記 | 範例若是日記，就需要特殊欄位與刪除例外，日曆和同步也要另外排除；做成說明頁，資料模型不需要任何例外 |
+| 自訂語言做成可同步的清單，最後一個動作為準 | 不用每篇重打；每個語言一筆資料，和日記用同一套合併規則，刪除與加回都能正確同步 |
+| 模型不寫死，查詢可用模型、預設選最新的正式版 Flash | Google 會推出與下架模型，寫死遲早要改程式；只列正式版，避免預覽版突然變動 |
+| Gemini API 網址寫死 | key 只能送到 Gemini；網址寫死，key 就不可能被設定成送到別的地方 |
+| 日曆的選取記在網址 | 重新整理或返回頁面都能保留選取，日曆與列表讀同一份狀態 |
+| 同步資料存成單一 JSON 檔 | 一次同步只要少數幾個請求，合併邏輯簡單；日記是純文字，檔案不大 |
+
 ## 本機安裝與執行
 
 需要 Node.js 22。
@@ -73,3 +126,5 @@ npx playwright install chromium
 
 - [docs/spec.md](docs/spec.md)：正式規格
 - [docs/decisions.md](docs/decisions.md)：開發過程中確定的細節決定
+- [docs/WORKFLOW.md](docs/WORKFLOW.md)：開發流程與角色分工
+- Phase summary：[Phase 1](docs/phases/phase-1-summary.md)、[Phase 2](docs/phases/phase-2-summary.md)、[Phase 3](docs/phases/phase-3-summary.md)、[Phase 4](docs/phases/phase-4-summary.md)
