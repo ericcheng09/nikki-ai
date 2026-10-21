@@ -293,7 +293,9 @@ describe('SettingsPage', () => {
       expect(await screen.findByText('無法確認 API key，請檢查網路後再試一次。')).toBeInTheDocument()
       expect(button).toHaveFocus()
       fireEvent.click(button)
-      expect(await screen.findByText('API key 可以使用')).toHaveFocus()
+      const result = await screen.findByText('API key 可以使用')
+      // The focus moves in an effect, which may run after the line shows up.
+      await vi.waitFor(() => expect(result).toHaveFocus())
       expect(listModels).toHaveBeenCalledTimes(3)
     })
 
@@ -315,7 +317,8 @@ describe('SettingsPage', () => {
       await act(async () => rejectOld(coded('invalidKey')))
       expect(screen.getByText('API key 可以使用')).toBeInTheDocument()
       expect(screen.queryByText(/API key 無效/)).not.toBeInTheDocument()
-      expect(screen.getByLabelText('模型')).toBeInTheDocument()
+      // The remounted model section loads its settings before showing the list.
+      expect(await screen.findByLabelText('模型')).toBeInTheDocument()
     })
 
     it('drops the check when the key is deleted mid-request', async () => {

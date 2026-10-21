@@ -149,7 +149,9 @@ describe('GoogleSyncSettings', () => {
     const auth = fakeAuth('signedIn')
     render(<GoogleSyncSettings auth={auth} />)
     fireEvent.click(await screen.findByRole('button', { name: '登出' }))
-    expect(await screen.findByRole('button', { name: '登入 Google' })).toHaveFocus()
+    const signIn = await screen.findByRole('button', { name: '登入 Google' })
+    // The focus moves in an effect, which may run after the button shows up.
+    await waitFor(() => expect(signIn).toHaveFocus())
     expect(auth.signOut).toHaveBeenCalledTimes(1)
   })
 

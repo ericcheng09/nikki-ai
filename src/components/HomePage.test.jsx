@@ -224,6 +224,24 @@ describe('HomePage calendar selection', () => {
     expect(listTitle()).toHaveFocus()
   })
 
+  it('still focuses the heading when 顯示全部 is pressed before the mount effects ran', async () => {
+    // Regression: a busy machine let React's Scheduler yield between the
+    // first commit and its effects; a click in that gap had its focus
+    // request consumed by the pending mount effect. A clock that jumps
+    // 20 ms per read makes every Scheduler time slice overrun, so it
+    // yields after every task and the gap always exists.
+    let now = performance.now()
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => (now += 20))
+    try {
+      renderHomeAt('/?month=2026-10&date=2026-10-05')
+      fireEvent.click(await screen.findByRole('button', { name: '顯示全部' }))
+      expect(listTitle()).toHaveTextContent('我的日記')
+      expect(listTitle()).toHaveFocus()
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
   it('changing the month clears the selected day', async () => {
     renderHomeAt('/?month=2026-10&date=2026-10-18')
     await screen.findByRole('button', { name: '顯示全部' })
@@ -232,7 +250,8 @@ describe('HomePage calendar selection', () => {
     expect(navType()).toBe('REPLACE')
     expect(listTitle()).toHaveTextContent('我的日記')
 
-    fireEvent.click(screen.getByRole('button', { name: '9月3日，有日記' }))
+    // 顯示全部 already shows while the entries load; the marks need them.
+    fireEvent.click(await screen.findByRole('button', { name: '9月3日，有日記' }))
     fireEvent.click(screen.getByRole('button', { name: '今天' }))
     expect(search()).toBe('?month=2026-10')
   })

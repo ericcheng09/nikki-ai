@@ -55,8 +55,9 @@ export default function DiaryList({ status, entries, selectedDate = null, onShow
   )
   const dayTitle = selectedDate ? formatDayTitle(selectedDate) : ''
   const headingRef = useRef(null)
-  // Set by 顯示全部 until the parent has cleared the selection.
-  const focusAfterClearRef = useRef(false)
+  // The day 顯示全部 was pressed on, until the parent has changed the
+  // selection; null = no pending request.
+  const clearingDateRef = useRef(null)
 
   // 顯示全部 removes itself; focus moves to the list heading so keyboard and
   // screen reader users are not dropped to the page start. The parent clears
@@ -64,14 +65,18 @@ export default function DiaryList({ status, entries, selectedDate = null, onShow
   // moved only once selectedDate is null and the heading already reads
   // 我的日記 (focusing earlier would announce the old day title).
   useEffect(() => {
-    if (!focusAfterClearRef.current) return
-    // Any selection change ends the request; only a cleared one focuses.
-    focusAfterClearRef.current = false
+    const clearing = clearingDateRef.current
+    // An effect run for the day that was pressed on is not the clear yet:
+    // the mount effect can still be pending when an early click lands, and
+    // must not consume the request (it used to, losing the focus).
+    if (!clearing || selectedDate === clearing) return
+    // Any other selection change ends the request; only a cleared one focuses.
+    clearingDateRef.current = null
     if (!selectedDate) headingRef.current?.focus()
   }, [selectedDate])
 
   function showAll() {
-    focusAfterClearRef.current = true
+    clearingDateRef.current = selectedDate
     onShowAll?.()
   }
 

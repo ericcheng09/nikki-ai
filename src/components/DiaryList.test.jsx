@@ -198,6 +198,30 @@ describe('DiaryList (selected day)', () => {
     expect(screen.getByRole('heading', { level: 2 })).not.toHaveFocus()
   })
 
+  it('drops the focus request when the selection moves to another day instead', () => {
+    // The parent ignores 顯示全部 and picks another day; a later clear that
+    // 顯示全部 did not ask for must not move focus either.
+    function Parent() {
+      const [date, setDate] = useState('2026-10-18')
+      return (
+        <MemoryRouter>
+          <button type="button" onClick={() => setDate(null)}>
+            外部清除
+          </button>
+          <DiaryList status="ready" entries={all} selectedDate={date} onShowAll={() => setDate('2026-10-05')} />
+        </MemoryRouter>
+      )
+    }
+    render(<Parent />)
+    fireEvent.click(screen.getByRole('button', { name: '顯示全部' }))
+    const heading = screen.getByRole('heading', { level: 2 })
+    expect(heading).not.toHaveTextContent('我的日記')
+    expect(heading).not.toHaveFocus()
+    fireEvent.click(screen.getByRole('button', { name: '外部清除' }))
+    expect(heading).toHaveTextContent('我的日記')
+    expect(heading).not.toHaveFocus()
+  })
+
   it('has no 顯示全部 and the normal title without a selection', () => {
     renderSelected(null)
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('我的日記')
