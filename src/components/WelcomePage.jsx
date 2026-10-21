@@ -3,6 +3,7 @@ import {
   WELCOME_SAMPLE_ANALYSIS,
   WELCOME_SAMPLE_CONTENT,
 } from '../lib/welcomeSample.js'
+import { PRIVACY_POLICY_URL } from '../lib/privacyPolicy.js'
 
 // First-use welcome page (spec 3.5). Shown automatically until the user
 // presses 開始使用 (in the top bar, see WelcomeStartButton), and reachable
@@ -44,6 +45,11 @@ export default function WelcomePage() {
         <p className="welcome-sample-content">{WELCOME_SAMPLE_CONTENT}</p>
         <AnalysisView analysis={WELCOME_SAMPLE_ANALYSIS} />
       </section>
+
+      {/* Plain <a>: privacy.html is a static page, not an App route. */}
+      <p className="muted">
+        <a href={PRIVACY_POLICY_URL}>隱私權政策</a>
+      </p>
     </article>
   )
 }

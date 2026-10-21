@@ -287,6 +287,26 @@ html {
   margin: 16px 0 0;
 }
 
+/* Full list split into 今天 / 昨天 / month groups; the h3 sits close to
+   its own entries and further from the previous group's last item. */
+.entry-groups {
+  margin-top: 16px;
+}
+
+.entry-group + .entry-group {
+  margin-top: 20px;
+}
+
+.entry-group-title {
+  font-size: 1rem;
+  color: #444;
+  margin: 0 0 8px;
+}
+
+.entry-group .entries {
+  margin-top: 0;
+}
+
 .entry-item {
   display: block;
   color: inherit;
@@ -379,6 +399,10 @@ html {
 
 .muted {
   color: #666;
+}
+
+.app-version {
+  font-size: 0.85rem;
 }
 
 .error {

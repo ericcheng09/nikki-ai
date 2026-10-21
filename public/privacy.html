@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>隱私權政策 - 外語學習日記</title>
+    <!--
+      Static page outside the SPA (docs/decisions.md 隱私權政策): GitHub Pages
+      serves it with status 200 and it is readable without JavaScript. No
+      external resources, so opening it makes no third-party request.
+      The text is the user-approved wording; change it only with the user's
+      confirmation.
+    -->
+    <style>
+      :root {
+        font-family: system-ui, -apple-system, 'Noto Sans TC', sans-serif;
+        line-height: 1.6;
+        color: #222;
+        background: #fafafa;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 16px;
+        /* Long URLs must wrap instead of causing horizontal scrolling. */
+        overflow-wrap: anywhere;
+      }
+      nav {
+        margin-bottom: 16px;
+      }
+      a {
+        color: #2f6fde;
+      }
+      h1 {
+        font-size: 1.3rem;
+        margin: 0 0 4px;
+      }
+      section + section {
+        margin-top: 32px;
+        padding-top: 16px;
+        border-top: 1px solid #e3e3e3;
+      }
+      .updated {
+        color: #666;
+        margin: 0 0 16px;
+      }
+      ol {
+        padding-left: 1.5em;
+      }
+      li {
+        margin-bottom: 8px;
+      }
+      li ul {
+        margin-top: 4px;
+        padding-left: 1.2em;
+      }
+      li ul li {
+        margin-bottom: 4px;
+      }
+      code {
+        font-size: 0.95em;
+        padding: 0 4px;
+        background: #eee;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <nav>
+        <a href="./">回到 App</a> · <a href="#en" lang="en">English</a>
+      </nav>
+
+      <section id="zh" aria-labelledby="zh-title">
+        <h1 id="zh-title">隱私權政策：外語學習日記（nikki-ai）</h1>
+        <p class="updated">最後更新：2026-10-21</p>
+        <ol>
+          <li>App 是什麼：在瀏覽器裡執行的網頁 App，沒有開發者的伺服器，開發者收不到你的任何資料。</li>
+          <li>資料存在哪裡：日記、語言清單和設定（包括 Gemini API key）存在你的瀏覽器。</li>
+          <li>
+            Google 登入與 Drive：
+            <ul>
+              <li>登入後，App 只要求 <code>drive.appdata</code> 權限，只能存取你 Google Drive 中這個 App 專屬的隱藏資料夾，看不到你的其他檔案。</li>
+              <li>App 在那裡存一個同步檔，內容是日記（含 AI 批改結果與刪除記號）、語言清單、Gemini API key 和選擇的模型。</li>
+              <li>App 不讀取你的姓名、email 或其他 Google 帳號資料。</li>
+              <li>Google 存取權杖只存在你的瀏覽器，大約 1 小時後失效。</li>
+            </ul>
+          </li>
+          <li>
+            AI 批改：
+            <ul>
+              <li>你按下「AI 批改」時，App 會把那一篇日記和你的 API key 直接送到 Google Gemini API。</li>
+              <li>打開設定頁或儲存 API key 時，App 也會用你的 API key 向 Gemini API 查詢可用的模型，不會送出日記內容。</li>
+              <li>這些資料依你 API key 所屬方案的 Google 條款處理。使用免費方案時，Google 可能把內容用來改善產品。</li>
+            </ul>
+          </li>
+          <li>不分享、不販售：不把資料分享或賣給任何人，不放廣告，不使用分析或追蹤工具。</li>
+          <li>Google API 使用：App 使用 Google API 取得的資料，遵守 Google API Services User Data Policy，包括 Limited Use 的要求。</li>
+          <li>網站主機：網站放在 GitHub Pages，GitHub 可能記錄存取紀錄（例如 IP），依 GitHub 的隱私權聲明處理。打開設定頁時，App 會從 Google 載入登入程式（Google Identity Services），Google 會收到這個請求。</li>
+          <li>
+            如何刪除資料：
+            <ul>
+              <li>本機資料：清除瀏覽器裡這個網站的資料。</li>
+              <li>停止同步：在設定頁登出時，App 會嘗試撤銷授權；要確定移除，請到 Google 帳號的「第三方應用程式」頁面移除這個 App。</li>
+              <li>Drive 上的同步檔：到 Google Drive 的「設定 → 管理應用程式」，刪除這個 App 的隱藏資料。</li>
+            </ul>
+          </li>
+          <li>聯絡方式：有問題請到 GitHub 開 Issue：<a href="https://github.com/ericcheng09/nikki-ai/issues">https://github.com/ericcheng09/nikki-ai/issues</a></li>
+          <li>變更：內容更新時，修改本頁的「最後更新」日期。</li>
+        </ol>
+      </section>
+
+      <section id="en" lang="en" aria-labelledby="en-title">
+        <h1 id="en-title">Privacy Policy — nikki-ai (Foreign Language Diary)</h1>
+        <p class="updated">Last updated: 2026-10-21</p>
+        <ol>
+          <li>What the app is: A web app that runs entirely in your browser. There is no developer server, and the developer never receives your data.</li>
+          <li>Where data is stored: Your diary entries, language list and settings (including your Gemini API key) are stored in your browser.</li>
+          <li>Google sign-in and Drive: After you sign in, the app requests only the <code>drive.appdata</code> scope. It can access only a hidden folder in your Google Drive that is private to this app, and cannot see any of your other files. The app stores one sync file there containing your diary entries (including AI review results and deletion markers), language list, Gemini API key and selected model. The app does not read your name, email address or any other Google account data. The Google access token is stored only in your browser and expires after about one hour.</li>
+          <li>AI review: When you press "<span lang="zh-Hant">AI 批改</span>" (AI review), the app sends that entry and your API key directly to the Google Gemini API. When you open the settings page or save your API key, the app also uses your API key to ask the Gemini API which models are available; no diary content is sent. This data is handled under the Google terms that apply to your API key's plan; on the free tier, Google may use the content to improve its products.</li>
+          <li>No sharing or selling: Your data is never shared with or sold to anyone. There are no ads, analytics or tracking tools.</li>
+          <li>Use of Google APIs: The app's use of information received from Google APIs adheres to the Google API Services User Data Policy, including the Limited Use requirements.</li>
+          <li>Hosting: The site is hosted on GitHub Pages. GitHub may log access information (such as IP addresses) under the GitHub Privacy Statement. When you open the settings page, the app loads Google's sign-in library (Google Identity Services) from Google, so Google receives that request.</li>
+          <li>Deleting your data: Local data: clear this site's data in your browser. To stop syncing: sign out in the settings page; the app will try to revoke access. To make sure access is removed, remove the app from the third-party apps page of your Google Account. Sync file on Drive: in Google Drive, go to Settings → Manage apps and delete this app's hidden data.</li>
+          <li>Contact: Please open an issue on GitHub: <a href="https://github.com/ericcheng09/nikki-ai/issues">https://github.com/ericcheng09/nikki-ai/issues</a></li>
+          <li>Changes: When this policy changes, the "Last updated" date on this page will be updated.</li>
+        </ol>
+      </section>
+    </main>
+  </body>
+</html>

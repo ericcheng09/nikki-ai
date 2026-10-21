@@ -47,6 +47,8 @@ export default function SettingsPage() {
       {/* Independent of the API key. */}
       <LanguageListSettings />
       <GoogleSyncSettings />
+      {/* Injected from package.json by vite.config.js (define). */}
+      <p className="muted app-version">版本 {__APP_VERSION__}</p>
     </section>
   )
 }

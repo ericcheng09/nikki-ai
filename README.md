@@ -8,7 +8,7 @@
 ## 目前功能（Phase 4）
 
 - 新增、編輯、刪除日記：選擇日期（預設今天，最晚只能選到今天），用任何外語輸入純文字內容；一天可以寫好幾篇。
-- 日記列表依日期排序，日期新的在上；同一天內，後寫的在上。
+- 日記列表依日期排序，日期新的在上；同一天內，後寫的在上。完整列表依「今天」「昨天」與月份分組。
 - 日曆：主畫面的日曆標出有寫日記的日子（已刪除的不算），可切換月份或按「今天」回到本月；點有日記的日期，列表只顯示當天的日記，再點一次或按「顯示全部」回到完整列表。寬螢幕時日曆在列表左邊，手機上在上方。
 - 刪除前會先確認。刪除採軟刪除，內文會立即清除。
 - 第一次開啟時顯示使用說明頁，用一篇範例日記示範 AI 批改結果的樣子。之後可從畫面右上角的「？」（使用說明）重新打開。
@@ -24,6 +24,8 @@ https://ericcheng09.github.io/nikki-ai/
 `main` 分支更新後，GitHub Actions 會自動執行單元測試、build 與 E2E 測試；全部通過才部署到 GitHub Pages。
 
 repo 的 Pages 來源需設定為「GitHub Actions」，這是一次性的設定。
+
+版本紀錄見 [GitHub Releases](https://github.com/ericcheng09/nikki-ai/releases)；目前版本顯示在設定頁最下方。
 
 ## 技術選型
 
@@ -127,4 +129,5 @@ npx playwright install chromium
 - [docs/spec.md](docs/spec.md)：正式規格
 - [docs/decisions.md](docs/decisions.md)：開發過程中確定的細節決定
 - [docs/WORKFLOW.md](docs/WORKFLOW.md)：開發流程與角色分工
+- [public/privacy.html](public/privacy.html)：隱私權政策（網址 https://ericcheng09.github.io/nikki-ai/privacy.html）
 - Phase summary：[Phase 1](docs/phases/phase-1-summary.md)、[Phase 2](docs/phases/phase-2-summary.md)、[Phase 3](docs/phases/phase-3-summary.md)、[Phase 4](docs/phases/phase-4-summary.md)

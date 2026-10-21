@@ -78,4 +78,14 @@ describe('WelcomePage', () => {
     renderWelcome()
     expect(saveEntry).not.toHaveBeenCalled()
   })
+
+  it('ends with a plain link to the static privacy policy page', () => {
+    const { container } = renderWelcome()
+    const link = screen.getByRole('link', { name: '隱私權政策' })
+    // Not an App route: the base path plus the file, opened by the browser itself.
+    expect(link).toHaveAttribute('href', `${import.meta.env.BASE_URL}privacy.html`)
+    expect(link).not.toHaveAttribute('target')
+    // Last element of the page, after the sample.
+    expect(container.querySelector('article').lastElementChild).toContainElement(link)
+  })
 })

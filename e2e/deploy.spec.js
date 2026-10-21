@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import {
   test,
   expect,
@@ -137,6 +138,45 @@ test.describe('production build on GitHub Pages', () => {
     // A missing asset is a real 404, not the app shell.
     const missing = await request.get('./assets/does-not-exist.js')
     expect(missing.status()).toBe(404)
+  })
+
+  // V2 (decisions.md 隱私權政策): the OAuth consent screen links to the
+  // home page and to the privacy policy; both must be real 200 pages, and
+  // the policy is the static file, not the app shell.
+  test('privacy.html and the home page are served with 200 as HTML', async ({ request, page }) => {
+    const privacy = await request.get('/nikki-ai/privacy.html', { maxRedirects: 0 })
+    expect(privacy.status()).toBe(200)
+    expect(privacy.headers()['content-type']).toMatch(/^text\/html/)
+    const html = await privacy.text()
+    expect(html).toContain('隱私權政策：外語學習日記（nikki-ai）')
+    expect(html).toContain('Privacy Policy — nikki-ai (Foreign Language Diary)')
+    expect(html).not.toContain('<script')
+    expect(html).not.toBe(await (await request.get('./404.html')).text())
+
+    const home = await request.get('/nikki-ai/', { maxRedirects: 0 })
+    expect(home.status()).toBe(200)
+    expect(home.headers()['content-type']).toMatch(/^text\/html/)
+
+    // In the browser too: the page itself loads with 200.
+    const response = await page.goto('/nikki-ai/privacy.html')
+    expect(response.status()).toBe(200)
+    await expect(page.getByRole('heading', { level: 1, name: '隱私權政策：外語學習日記（nikki-ai）' })).toBeVisible()
+  })
+
+  // V3 (decisions.md 版號): the version is injected at build time from
+  // package.json; the bundle must contain it and no placeholder.
+  test('the built bundle carries the package.json version, no __APP_VERSION__', async ({
+    request,
+  }) => {
+    const { version } = JSON.parse(
+      readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+    )
+    const html = await (await request.get('./')).text()
+    const scripts = [...html.matchAll(/src="([^"]+\.js)"/g)].map((m) => m[1])
+    expect(scripts.length).toBeGreaterThan(0)
+    const bundle = (await Promise.all(scripts.map(async (s) => (await request.get(s)).text()))).join('\n')
+    expect(bundle).not.toContain('__APP_VERSION__')
+    expect(bundle).toContain(version)
   })
 
   test('the page loads without failed asset requests', async ({ page }) => {

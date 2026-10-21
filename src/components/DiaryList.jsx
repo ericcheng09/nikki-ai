@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { formatDayTitle } from '../lib/calendar.js'
-import { filterActiveEntries, sortEntries } from '../lib/diary.js'
+import { filterActiveEntries, getLocalDateString, sortEntries } from '../lib/diary.js'
+import { groupEntries } from '../lib/listGroups.js'
 
 const PREVIEW_LENGTH = 80
 
@@ -15,21 +16,48 @@ function preview(content) {
     : chars.join('')
 }
 
+// `labelledBy`: id of the group heading naming this list, if any.
+function EntryItems({ entries, labelledBy }) {
+  return (
+    <ul className="entries" aria-labelledby={labelledBy}>
+      {entries.map((entry) => (
+        <li key={entry.id}>
+          <Link className="entry-item" to={`/entry/${entry.id}`}>
+            <time dateTime={entry.date}>{entry.date}</time>
+            <p className="entry-preview">{preview(entry.content)}</p>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 // Presentational list; HomePage loads the entries once and shares them
 // with the calendar. `status`: 'loading' | 'ready' | 'error'. `entries` is
 // the raw stored list (tombstones included); only active ones are shown.
 // With `selectedDate` only that day's entries are listed (same order),
 // under 「M月D日 的日記」 with a 「顯示全部」 button calling `onShowAll`.
+// Without it the list is split into 今天 / 昨天 / month groups.
 export default function DiaryList({ status, entries, selectedDate = null, onShowAll }) {
+  // Decided once when the home page opens (decisions.md: no update when
+  // the page stays open past midnight). Local timezone, like the editor.
+  const [today] = useState(() => getLocalDateString())
+  const groupIdPrefix = useId()
   const shown = useMemo(() => {
     if (status !== 'ready') return []
     const active = sortEntries(filterActiveEntries(entries ?? []))
     return selectedDate ? active.filter((entry) => entry.date === selectedDate) : active
   }, [status, entries, selectedDate])
+  // A selected day is shown as one plain list, exactly as before.
+  const groups = useMemo(
+    () => (selectedDate ? null : groupEntries(shown, today)),
+    [shown, selectedDate, today],
+  )
   const dayTitle = selectedDate ? formatDayTitle(selectedDate) : ''
   const headingRef = useRef(null)
-  // Set by 顯示全部 until the parent has cleared the selection.
-  const focusAfterClearRef = useRef(false)
+  // The day 顯示全部 was pressed on, until the parent has changed the
+  // selection; null = no pending request.
+  const clearingDateRef = useRef(null)
 
   // 顯示全部 removes itself; focus moves to the list heading so keyboard and
   // screen reader users are not dropped to the page start. The parent clears
@@ -37,14 +65,18 @@ export default function DiaryList({ status, entries, selectedDate = null, onShow
   // moved only once selectedDate is null and the heading already reads
   // 我的日記 (focusing earlier would announce the old day title).
   useEffect(() => {
-    if (!focusAfterClearRef.current) return
-    // Any selection change ends the request; only a cleared one focuses.
-    focusAfterClearRef.current = false
+    const clearing = clearingDateRef.current
+    // An effect run for the day that was pressed on is not the clear yet:
+    // the mount effect can still be pending when an early click lands, and
+    // must not consume the request (it used to, losing the focus).
+    if (!clearing || selectedDate === clearing) return
+    // Any other selection change ends the request; only a cleared one focuses.
+    clearingDateRef.current = null
     if (!selectedDate) headingRef.current?.focus()
   }, [selectedDate])
 
   function showAll() {
-    focusAfterClearRef.current = true
+    clearingDateRef.current = selectedDate
     onShowAll?.()
   }
 
@@ -76,17 +108,27 @@ export default function DiaryList({ status, entries, selectedDate = null, onShow
       {status === 'ready' && shown.length === 0 && (
         <p className="muted">還沒有日記，按「新增日記」開始寫第一篇吧。</p>
       )}
-      {status === 'ready' && shown.length > 0 && (
-        <ul className="entries">
-          {shown.map((entry) => (
-            <li key={entry.id}>
-              <Link className="entry-item" to={`/entry/${entry.id}`}>
-                <time dateTime={entry.date}>{entry.date}</time>
-                <p className="entry-preview">{preview(entry.content)}</p>
-              </Link>
-            </li>
-          ))}
-        </ul>
+      {status === 'ready' && shown.length > 0 && !groups && <EntryItems entries={shown} />}
+      {status === 'ready' && shown.length > 0 && groups && (
+        <div className="entry-groups">
+          {groups.map((group, index) => {
+            // Index-based ids: group keys can hold arbitrary text from a
+            // malformed date, which would make an invalid id.
+            const titleId = `${groupIdPrefix}-group-${index}`
+            return (
+              // The h3 names the group's list rather than a <section>
+              // landmark: a month landmark would share its name with the
+              // calendar region (「2026 年 10 月」). Headings still let
+              // screen reader users jump between groups.
+              <div key={group.key} className="entry-group">
+                <h3 id={titleId} className="entry-group-title">
+                  {group.title}
+                </h3>
+                <EntryItems entries={group.entries} labelledBy={titleId} />
+              </div>
+            )
+          })}
+        </div>
       )}
     </section>
   )

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import DiaryList from './DiaryList.jsx'
 
@@ -198,6 +198,30 @@ describe('DiaryList (selected day)', () => {
     expect(screen.getByRole('heading', { level: 2 })).not.toHaveFocus()
   })
 
+  it('drops the focus request when the selection moves to another day instead', () => {
+    // The parent ignores 顯示全部 and picks another day; a later clear that
+    // 顯示全部 did not ask for must not move focus either.
+    function Parent() {
+      const [date, setDate] = useState('2026-10-18')
+      return (
+        <MemoryRouter>
+          <button type="button" onClick={() => setDate(null)}>
+            外部清除
+          </button>
+          <DiaryList status="ready" entries={all} selectedDate={date} onShowAll={() => setDate('2026-10-05')} />
+        </MemoryRouter>
+      )
+    }
+    render(<Parent />)
+    fireEvent.click(screen.getByRole('button', { name: '顯示全部' }))
+    const heading = screen.getByRole('heading', { level: 2 })
+    expect(heading).not.toHaveTextContent('我的日記')
+    expect(heading).not.toHaveFocus()
+    fireEvent.click(screen.getByRole('button', { name: '外部清除' }))
+    expect(heading).toHaveTextContent('我的日記')
+    expect(heading).not.toHaveFocus()
+  })
+
   it('has no 顯示全部 and the normal title without a selection', () => {
     renderSelected(null)
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('我的日記')
@@ -208,5 +232,78 @@ describe('DiaryList (selected day)', () => {
   it('keeps 新增日記 linking to a plain new entry while a day is selected', () => {
     renderSelected('2026-10-18')
     expect(screen.getByRole('link', { name: '新增日記' })).toHaveAttribute('href', '/entry/new')
+  })
+})
+
+describe('DiaryList (groups)', () => {
+  beforeEach(() => {
+    // 2026-10-20 local noon, so the day does not depend on the test timezone.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 9, 20, 12))
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const all = [
+    entry('old', '2026-09-30', '2026-09-30T01:00:00.000Z'),
+    entry('month', '2026-10-05', '2026-10-05T01:00:00.000Z'),
+    entry('today-early', '2026-10-20', '2026-10-20T01:00:00.000Z'),
+    entry('yesterday', '2026-10-19', '2026-10-19T01:00:00.000Z'),
+    entry('future', '2026-11-02', '2026-10-20T02:00:00.000Z'),
+    entry('today-late', '2026-10-20', '2026-10-20T09:00:00.000Z'),
+    { id: 'gone', updatedAt: 'x', deleted: true, deletedAt: 'x' },
+  ]
+
+  // [group title, [previews]] in document order.
+  const groupsOnScreen = () =>
+    screen.getAllByRole('list').map((list) => [
+      document.getElementById(list.getAttribute('aria-labelledby')).textContent,
+      Array.from(list.querySelectorAll('.entry-preview'), (p) => p.textContent),
+    ])
+
+  it('groups the full list into 今天, 昨天 and months, order unchanged', () => {
+    renderList(all)
+    expect(groupsOnScreen()).toEqual([
+      ['2026 年 11 月', ['content future']],
+      ['今天', ['content today-late', 'content today-early']],
+      ['昨天', ['content yesterday']],
+      ['2026 年 10 月', ['content month']],
+      ['2026 年 9 月', ['content old']],
+    ])
+    // Group titles are h3 under the h2 我的日記 and name their list; no
+    // landmark is added (it would clash with the calendar's month name).
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('我的日記')
+    expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(5)
+    expect(screen.queryByRole('region')).not.toBeInTheDocument()
+    // Each entry still shows its full date.
+    expect(screen.getByRole('list', { name: '今天' }).querySelector('time')).toHaveTextContent('2026-10-20')
+  })
+
+  it('omits groups without entries', () => {
+    renderList([entry('old', '2026-09-30', '2026-09-30T01:00:00.000Z')])
+    expect(groupsOnScreen()).toEqual([['2026 年 9 月', ['content old']]])
+    expect(screen.queryByRole('heading', { name: '今天' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '昨天' })).not.toBeInTheDocument()
+  })
+
+  it('does not group a selected day', () => {
+    render(
+      <MemoryRouter>
+        <DiaryList status="ready" entries={all} selectedDate="2026-10-20" onShowAll={vi.fn()} />
+      </MemoryRouter>,
+    )
+    expect(screen.queryByRole('heading', { level: 3 })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('list')).toHaveLength(1)
+    expect(screen.getByRole('list')).not.toHaveAttribute('aria-labelledby')
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+  })
+
+  it('shows no groups while loading or when empty', () => {
+    renderList(all, 'loading')
+    expect(screen.queryByRole('heading', { level: 3 })).not.toBeInTheDocument()
+    cleanup()
+    renderList([])
+    expect(screen.queryByRole('heading', { level: 3 })).not.toBeInTheDocument()
   })
 })

@@ -1,9 +1,9 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import GoogleSyncSettings from './GoogleSyncSettings.jsx'
 import { fakeSyncEngine } from '../testUtils/fakeSyncEngine.js'
 
 const INTRO =
-  '登入 Google 後，日記、語言清單、API key 與模型會同步到你 Google Drive 中只有這個 App 看得到的資料夾。'
+  '登入 Google 後，日記、語言清單、API key 與模型會同步到你 Google Drive 中只有這個 App 看得到的資料夾。詳見隱私權政策。'
 
 function deferred() {
   let resolve
@@ -54,7 +54,7 @@ describe('GoogleSyncSettings', () => {
   it('signed out: explains sync and offers 登入 Google', async () => {
     render(<GoogleSyncSettings auth={fakeAuth()} />)
     expect(await screen.findByRole('button', { name: '登入 Google' })).toBeInTheDocument()
-    expect(screen.getByText(INTRO)).toBeInTheDocument()
+    expect(screen.getByText((_, el) => el.tagName === 'P' && el.textContent === INTRO)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '登出' })).not.toBeInTheDocument()
   })
 
@@ -93,7 +93,7 @@ describe('GoogleSyncSettings', () => {
     button.focus()
     fireEvent.click(button)
     expect(await screen.findByRole('alert')).toHaveTextContent('無法登入 Google，請再試一次。')
-    expect(screen.getByText(INTRO)).toBeInTheDocument()
+    expect(screen.getByText((_, el) => el.tagName === 'P' && el.textContent === INTRO)).toBeInTheDocument()
     expect(button).toHaveFocus()
   })
 
@@ -149,7 +149,9 @@ describe('GoogleSyncSettings', () => {
     const auth = fakeAuth('signedIn')
     render(<GoogleSyncSettings auth={auth} />)
     fireEvent.click(await screen.findByRole('button', { name: '登出' }))
-    expect(await screen.findByRole('button', { name: '登入 Google' })).toHaveFocus()
+    const signIn = await screen.findByRole('button', { name: '登入 Google' })
+    // The focus moves in an effect, which may run after the button shows up.
+    await waitFor(() => expect(signIn).toHaveFocus())
     expect(auth.signOut).toHaveBeenCalledTimes(1)
   })
 
@@ -340,5 +342,33 @@ describe('GoogleSyncSettings sync status', () => {
     await screen.findByRole('button', { name: '登入 Google' })
     expect(screen.queryByText(/同步狀態|上次同步/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '立即同步' })).not.toBeInTheDocument()
+  })
+
+  describe('privacy policy link', () => {
+    const privacyLink = () => within(section()).getByRole('link', { name: '隱私權政策' })
+
+    it('signed out: is in the intro next to 登入 Google, pointing to the static page', async () => {
+      render(<GoogleSyncSettings auth={fakeAuth()} />)
+      await screen.findByRole('button', { name: '登入 Google' })
+      expect(privacyLink()).toHaveAttribute('href', `${import.meta.env.BASE_URL}privacy.html`)
+      expect(privacyLink().closest('p')).toHaveTextContent(INTRO)
+    })
+
+    it('signed in and needing re-login: still shown', async () => {
+      const { unmount } = render(<GoogleSyncSettings auth={fakeAuth('signedIn')} />)
+      await screen.findByText('已登入')
+      expect(privacyLink()).toHaveAttribute('href', `${import.meta.env.BASE_URL}privacy.html`)
+      unmount()
+      render(<GoogleSyncSettings auth={fakeAuth('needsLogin')} />)
+      await screen.findByRole('button', { name: '重新登入' })
+      expect(privacyLink()).toHaveAttribute('href', `${import.meta.env.BASE_URL}privacy.html`)
+    })
+
+    it('is not shown while the status is still loading', () => {
+      const auth = fakeAuth()
+      auth.getStatus.mockReturnValue(new Promise(() => {}))
+      render(<GoogleSyncSettings auth={auth} />)
+      expect(screen.queryByRole('link', { name: '隱私權政策' })).not.toBeInTheDocument()
+    })
   })
 })

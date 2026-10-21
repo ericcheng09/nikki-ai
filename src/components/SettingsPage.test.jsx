@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import SettingsPage from './SettingsPage.jsx'
 import { loadSettings, updateSettings } from '../storage/connection.js'
 import { listModels } from '../lib/gemini.js'
+import packageJson from '../../package.json'
 
 vi.mock('../storage/connection.js', () => ({
   loadSettings: vi.fn(),
@@ -183,6 +184,27 @@ describe('SettingsPage', () => {
     expect(screen.getByRole('heading', { name: '語言清單' })).toBeInTheDocument()
   })
 
+  it('ends with the app version from package.json, after every section', async () => {
+    renderSettings()
+    await keyInput()
+    const version = screen.getByText(`版本 ${packageJson.version}`)
+    expect(version).toHaveClass('muted')
+    // Last child of the page, so it sits below every section.
+    expect(version.parentElement.lastElementChild).toBe(version)
+    expect(version.parentElement).toHaveClass('settings')
+  })
+
+  it('keeps the version as the last line when the model section is shown', async () => {
+    vi.mocked(loadSettings).mockResolvedValue({
+      geminiApiKey: 'test-key-123',
+      geminiModel: FLASH.name,
+    })
+    renderSettings()
+    await screen.findByLabelText('模型')
+    const version = screen.getByText(`版本 ${packageJson.version}`)
+    expect(version.parentElement.lastElementChild).toBe(version)
+  })
+
   describe('API key check (shared with the model list)', () => {
     const coded = (code) => Object.assign(new Error(`failed: ${code}`), { code })
     const withSavedKey = (geminiModel = FLASH.name) =>
@@ -271,7 +293,9 @@ describe('SettingsPage', () => {
       expect(await screen.findByText('無法確認 API key，請檢查網路後再試一次。')).toBeInTheDocument()
       expect(button).toHaveFocus()
       fireEvent.click(button)
-      expect(await screen.findByText('API key 可以使用')).toHaveFocus()
+      const result = await screen.findByText('API key 可以使用')
+      // The focus moves in an effect, which may run after the line shows up.
+      await vi.waitFor(() => expect(result).toHaveFocus())
       expect(listModels).toHaveBeenCalledTimes(3)
     })
 
@@ -293,7 +317,8 @@ describe('SettingsPage', () => {
       await act(async () => rejectOld(coded('invalidKey')))
       expect(screen.getByText('API key 可以使用')).toBeInTheDocument()
       expect(screen.queryByText(/API key 無效/)).not.toBeInTheDocument()
-      expect(screen.getByLabelText('模型')).toBeInTheDocument()
+      // The remounted model section loads its settings before showing the list.
+      expect(await screen.findByLabelText('模型')).toBeInTheDocument()
     })
 
     it('drops the check when the key is deleted mid-request', async () => {

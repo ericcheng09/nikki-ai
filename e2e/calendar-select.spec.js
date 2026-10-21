@@ -428,3 +428,37 @@ test.describe('deleting from the calendar views', () => {
     await expect(page.getByText('找不到這篇日記')).toHaveCount(0)
   })
 })
+
+test.describe('顯示全部 pressed right as the page opens', () => {
+  // Regression for the early-click focus bug: 顯示全部 pressed in the same
+  // task that first renders the list (before React's mount effects run)
+  // used to lose the focus request. A MutationObserver clicks the button
+  // synchronously the moment it is inserted, which reproduces that timing
+  // deterministically.
+  test('focus still moves to the 我的日記 heading', async ({ page }) => {
+    await setup(page)
+    await page.addInitScript(() => {
+      if (!sessionStorage.getItem('e2e-early-click')) return
+      sessionStorage.removeItem('e2e-early-click')
+      const observer = new MutationObserver(() => {
+        const button = [...document.querySelectorAll('section.diary-list button')].find(
+          (b) => b.textContent.trim() === '顯示全部',
+        )
+        if (!button) return
+        observer.disconnect()
+        window.__earlyClick = { listItems: document.querySelectorAll('ul.entries > li').length }
+        button.click()
+      })
+      observer.observe(document, { childList: true, subtree: true })
+    })
+    await page.evaluate(() => sessionStorage.setItem('e2e-early-click', '1'))
+    await page.goto('./?month=2026-10&date=2026-10-12')
+
+    // The click happened before the entries were even shown.
+    await expect.poll(() => page.evaluate(() => window.__earlyClick)).toEqual({ listItems: 0 })
+    await expect(page).toHaveURL(homeUrl('?month=2026-10'))
+    await expect(previews(page)).toHaveText(FULL_ORDER)
+    await expectFullList(page)
+    await expect(listHeading(page)).toBeFocused()
+  })
+})
