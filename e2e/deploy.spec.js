@@ -139,6 +139,29 @@ test.describe('production build on GitHub Pages', () => {
     expect(missing.status()).toBe(404)
   })
 
+  // V2 (decisions.md 隱私權政策): the OAuth consent screen links to the
+  // home page and to the privacy policy; both must be real 200 pages, and
+  // the policy is the static file, not the app shell.
+  test('privacy.html and the home page are served with 200 as HTML', async ({ request, page }) => {
+    const privacy = await request.get('/nikki-ai/privacy.html', { maxRedirects: 0 })
+    expect(privacy.status()).toBe(200)
+    expect(privacy.headers()['content-type']).toMatch(/^text\/html/)
+    const html = await privacy.text()
+    expect(html).toContain('隱私權政策：外語學習日記（nikki-ai）')
+    expect(html).toContain('Privacy Policy — nikki-ai (Foreign Language Diary)')
+    expect(html).not.toContain('<script')
+    expect(html).not.toBe(await (await request.get('./404.html')).text())
+
+    const home = await request.get('/nikki-ai/', { maxRedirects: 0 })
+    expect(home.status()).toBe(200)
+    expect(home.headers()['content-type']).toMatch(/^text\/html/)
+
+    // In the browser too: the page itself loads with 200.
+    const response = await page.goto('/nikki-ai/privacy.html')
+    expect(response.status()).toBe(200)
+    await expect(page.getByRole('heading', { level: 1, name: '隱私權政策：外語學習日記（nikki-ai）' })).toBeVisible()
+  })
+
   test('the page loads without failed asset requests', async ({ page }) => {
     const failed = []
     page.on('response', (response) => {

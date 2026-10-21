@@ -127,4 +127,5 @@ npx playwright install chromium
 - [docs/spec.md](docs/spec.md)：正式規格
 - [docs/decisions.md](docs/decisions.md)：開發過程中確定的細節決定
 - [docs/WORKFLOW.md](docs/WORKFLOW.md)：開發流程與角色分工
+- [public/privacy.html](public/privacy.html)：隱私權政策（網址 https://ericcheng09.github.io/nikki-ai/privacy.html）
 - Phase summary：[Phase 1](docs/phases/phase-1-summary.md)、[Phase 2](docs/phases/phase-2-summary.md)、[Phase 3](docs/phases/phase-3-summary.md)、[Phase 4](docs/phases/phase-4-summary.md)

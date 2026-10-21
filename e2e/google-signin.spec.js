@@ -24,8 +24,10 @@ import {
 const CLIENT_ID = '183657778897-o2qr69jd1khjror0fc0c5i7geh5eeltj.apps.googleusercontent.com'
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata'
 const TOKEN = GOOGLE_TOKEN
+// The intro ends with a link to the privacy policy (decisions.md 隱私權政策);
+// getByText matches the <p> by its whole text, link included.
 const INTRO =
-  '登入 Google 後，日記、語言清單、API key 與模型會同步到你 Google Drive 中只有這個 App 看得到的資料夾。'
+  '登入 Google 後，日記、語言清單、API key 與模型會同步到你 Google Drive 中只有這個 App 看得到的資料夾。詳見隱私權政策。'
 const SIGN_IN_ERROR = '無法登入 Google，請再試一次。'
 const EXPIRED = 'Google 登入已過期，請重新登入。'
 

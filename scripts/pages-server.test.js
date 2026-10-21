@@ -38,6 +38,14 @@ describe('resolveRequest', () => {
     expect(r.headers['Content-Type']).toMatch(/javascript/)
   })
 
+  it('serves a static page next to the SPA (privacy.html) with status 200', () => {
+    writeFileSync(join(dir, 'privacy.html'), 'PRIVACY')
+    const r = resolveRequest(dir, '/nikki-ai/privacy.html')
+    expect(r.status).toBe(200)
+    expect(r.file).toBe(join(dir, 'privacy.html'))
+    expect(r.headers['Content-Type']).toMatch(/text\/html/)
+  })
+
   it('answers unknown SPA routes with status 404 and the 404.html body', () => {
     const r = resolveRequest(dir, '/nikki-ai/entry/abc')
     expect(r.status).toBe(404)

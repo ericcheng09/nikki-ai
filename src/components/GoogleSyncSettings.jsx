@@ -8,9 +8,13 @@ import {
   syncErrorMessage,
   syncStateLabel,
 } from '../lib/syncStatus.js'
+import { PRIVACY_POLICY_URL } from '../lib/privacyPolicy.js'
 
 const SIGN_IN_ERROR = '無法登入 Google，請再試一次。'
 const LOAD_ERROR = '無法讀取設定，請重新整理頁面。'
+
+// Plain <a>: privacy.html is a static page, not an App route.
+const privacyLink = <a href={PRIVACY_POLICY_URL}>隱私權政策</a>
 
 // 「Google Drive 同步」 section of the settings page (spec 3.6, 6;
 // decisions.md Phase 4): sign in and out, the sync status, the last sync
@@ -186,7 +190,7 @@ export default function GoogleSyncSettings({ auth = googleAuth, engine = syncEng
       {status === 'signedOut' && (
         <>
           <p className="muted">
-            登入 Google 後，日記、語言清單、API key 與模型會同步到你 Google Drive 中只有這個 App 看得到的資料夾。
+            登入 Google 後，日記、語言清單、API key 與模型會同步到你 Google Drive 中只有這個 App 看得到的資料夾。詳見{privacyLink}。
           </p>
           <div className="actions">{signInButton('登入 Google')}</div>
         </>
@@ -238,6 +242,12 @@ export default function GoogleSyncSettings({ auth = googleAuth, engine = syncEng
         <p className="error" role="alert">
           {error}
         </p>
+      )}
+
+      {/* Signed in there is no intro text, so the link gets its own line;
+          the policy explains e.g. how to delete the data on Drive. */}
+      {(status === 'signedIn' || status === 'needsLogin') && (
+        <p className="muted">{privacyLink}</p>
       )}
     </section>
   )
