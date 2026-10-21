@@ -25,6 +25,8 @@ https://ericcheng09.github.io/nikki-ai/
 
 repo 的 Pages 來源需設定為「GitHub Actions」，這是一次性的設定。
 
+版本紀錄見 [GitHub Releases](https://github.com/ericcheng09/nikki-ai/releases)；目前版本顯示在設定頁最下方。
+
 ## 技術選型
 
 | 項目 | 選擇 |

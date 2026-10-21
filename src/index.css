@@ -401,6 +401,10 @@ html {
   color: #666;
 }
 
+.app-version {
+  font-size: 0.85rem;
+}
+
 .error {
   color: #c62828;
 }

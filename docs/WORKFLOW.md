@@ -65,6 +65,11 @@
 
 PR 由使用者合併,或由使用者明確指示 Planner 執行 `gh pr merge --merge`。使用者的 review 意見留在 PR 上作為紀錄。
 
+版號(規則見 `docs/decisions.md`「版號」):
+
+- 開 PR 前,Developer 更新 `package.json` 的 `version`。
+- 合併後,Planner 在合併 commit 打 tag(例如 `v1.1.0`)並建立 GitHub Release(中文,內容整理自該次 PR)。使用者指示合併時,即同意一併打 tag 與建立 Release。
+
 ## 最重要的規則
 
 合併到 main 只能由使用者執行,或由使用者**針對這一次合併明確指示** Planner 執行。沒有明確指示時,任何角色都不可以假設使用者同意合併;Developer、Tester、Code Reviewer 在任何情況下都不執行合併。

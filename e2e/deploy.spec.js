@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import {
   test,
   expect,
@@ -160,6 +161,22 @@ test.describe('production build on GitHub Pages', () => {
     const response = await page.goto('/nikki-ai/privacy.html')
     expect(response.status()).toBe(200)
     await expect(page.getByRole('heading', { level: 1, name: '隱私權政策：外語學習日記（nikki-ai）' })).toBeVisible()
+  })
+
+  // V3 (decisions.md 版號): the version is injected at build time from
+  // package.json; the bundle must contain it and no placeholder.
+  test('the built bundle carries the package.json version, no __APP_VERSION__', async ({
+    request,
+  }) => {
+    const { version } = JSON.parse(
+      readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+    )
+    const html = await (await request.get('./')).text()
+    const scripts = [...html.matchAll(/src="([^"]+\.js)"/g)].map((m) => m[1])
+    expect(scripts.length).toBeGreaterThan(0)
+    const bundle = (await Promise.all(scripts.map(async (s) => (await request.get(s)).text()))).join('\n')
+    expect(bundle).not.toContain('__APP_VERSION__')
+    expect(bundle).toContain(version)
   })
 
   test('the page loads without failed asset requests', async ({ page }) => {

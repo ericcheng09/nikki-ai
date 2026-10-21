@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import SettingsPage from './SettingsPage.jsx'
 import { loadSettings, updateSettings } from '../storage/connection.js'
 import { listModels } from '../lib/gemini.js'
+import packageJson from '../../package.json'
 
 vi.mock('../storage/connection.js', () => ({
   loadSettings: vi.fn(),
@@ -181,6 +182,27 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '刪除' }))
     await screen.findByText('已刪除')
     expect(screen.getByRole('heading', { name: '語言清單' })).toBeInTheDocument()
+  })
+
+  it('ends with the app version from package.json, after every section', async () => {
+    renderSettings()
+    await keyInput()
+    const version = screen.getByText(`版本 ${packageJson.version}`)
+    expect(version).toHaveClass('muted')
+    // Last child of the page, so it sits below every section.
+    expect(version.parentElement.lastElementChild).toBe(version)
+    expect(version.parentElement).toHaveClass('settings')
+  })
+
+  it('keeps the version as the last line when the model section is shown', async () => {
+    vi.mocked(loadSettings).mockResolvedValue({
+      geminiApiKey: 'test-key-123',
+      geminiModel: FLASH.name,
+    })
+    renderSettings()
+    await screen.findByLabelText('模型')
+    const version = screen.getByText(`版本 ${packageJson.version}`)
+    expect(version.parentElement.lastElementChild).toBe(version)
   })
 
   describe('API key check (shared with the model list)', () => {
